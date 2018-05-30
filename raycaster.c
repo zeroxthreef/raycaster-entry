@@ -58,10 +58,13 @@ static short internal_asprintf(char **string, const char *fmt, ...) /* took this
 
 static void internal_drawDebug(map_settings_t *map)
 {
+  SDL_version version;
   char *fps_string = NULL;
   char *playerx_string = NULL;
   char *playery_string = NULL;
   char *playerangle_string = NULL;
+  char *compile_string = NULL;
+  char *link_string = NULL;
   stringRGBA(mainrenderer, 0, 0, "FPS: TODO", 255, 255, 255, 255); /* TODO do it right */
   internal_asprintf(&playerx_string, "player x: %f", map->player.x);
   stringRGBA(mainrenderer, 0, 8, playerx_string, 255, 255, 255, 255);
@@ -69,7 +72,20 @@ static void internal_drawDebug(map_settings_t *map)
   stringRGBA(mainrenderer, 0, 16, playery_string, 255, 255, 255, 255);
   internal_asprintf(&playerangle_string, "player angle: %f", map->cam_angle);
   stringRGBA(mainrenderer, 0, 24, playerangle_string, 255, 255, 255, 255);
+  SDL_VERSION(&version);
+  internal_asprintf(&compile_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
+  stringRGBA(mainrenderer, 0, 32, compile_string, 255, 255, 255, 255);
+  SDL_GetVersion(&version);
+  internal_asprintf(&link_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
+  stringRGBA(mainrenderer, 0, 40, link_string, 255, 255, 255, 255);
 
+  /* free everything */
+  free(fps_string);
+  free(playerx_string);
+  free(playery_string);
+  free(playerangle_string);
+  free(compile_string);
+  free(link_string);
 }
 
 /* global functions */
@@ -113,14 +129,12 @@ void render(map_settings_t *map)
         /* do the real raycasting tests. Send out a ray within the fov at the width number of pixels */
 
         /* temporary line and distance persp test */
-        //float linex = map->cam_angle + radians_to_degrees(angle);
-        float linex = (((radians_to_degrees(angle)) * map->win_width) / map->cam_fov) + map->win_width/2;
+        float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
         float liney0 = map->win_height/2 - (map->win_height * 2 / distance); /* top so it goes negative */
         float liney1 = map->win_height/2 + (map->win_height * 2 / distance); /* bottom so it goes positive */
-        //SDL_SetRenderDrawColor(mainrenderer, 160, 200, 210, 255);
         thickLineRGBA(mainrenderer, linex, liney0, linex, liney1, 4, 160, 200, 210, 255);
 
-        printf("x %f y0 %f y1 %f\n", linex, liney0, liney1);
+
 
 
 
