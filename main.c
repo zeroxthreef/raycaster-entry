@@ -11,6 +11,7 @@ TODO multiple levels
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 
 int init();
@@ -72,7 +73,11 @@ void logic()
   map.player.x += (map.player.velx / 12) * cos(degrees_to_radians(map.cam_angle + 90));
   map.player.y += (map.player.velx / 12) * sin(degrees_to_radians(map.cam_angle + 90));
 
-  map.cam_angle += map.cam_velocity * 2;
+  map.cam_angle += map.cam_velocity * 2; /* This is actually a terrible "fix" */
+  if(map.cam_angle < -180.0f)
+    map.cam_angle = 180;
+  if(map.cam_angle > 180.0f)
+    map.cam_angle = -180;
 }
 
 void destroy()
