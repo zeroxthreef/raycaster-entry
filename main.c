@@ -52,6 +52,10 @@ int init()
   map.cam_fov = 60;
   map.win_width = 800;
   map.win_height = 600;
+  map.max_distance = 100.0f;
+  map.can_debug = 1;
+  map.camera_height_offset = 0.0f;
+  map.camera_ydiff_max = 4.0f;
 
   raycaster_initbasics(&map);
 
@@ -65,6 +69,7 @@ int init()
 
 void logic()
 {
+  static float i = 0.0f;
   /* map.player.x += map.player.velx / 12; */
   /* map.player.y += map.player.vely / 12; */
   map.player.x -= (map.player.vely / 12) * cos(degrees_to_radians(map.cam_angle));
@@ -74,10 +79,20 @@ void logic()
   map.player.y += (map.player.velx / 12) * sin(degrees_to_radians(map.cam_angle + 90));
 
   map.cam_angle += map.cam_velocity * 2; /* This is actually a terrible "fix" */
-  if(map.cam_angle < -180.0f)
-    map.cam_angle = 180;
-  if(map.cam_angle > 180.0f)
-    map.cam_angle = -180;
+  if(map.can_debug)/* snapping makes things jumpy */
+  {
+    if(map.cam_angle < -180.0f)
+      map.cam_angle = 180;
+    if(map.cam_angle > 180.0f)
+      map.cam_angle = -180;
+  }
+
+  if(map.player.velx != 0 || map.player.vely != 0) /* camera bob */
+  {
+    map.camera_height_offset = sin(i);
+    i+= 0.3;
+  }
+
 }
 
 void destroy()

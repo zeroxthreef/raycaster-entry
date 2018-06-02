@@ -7,6 +7,9 @@
 #define FOVRENDERDISTANCE 50
 #define PI 3.14159265f
 
+
+
+
 typedef struct
 {
   unsigned char type;
@@ -36,9 +39,12 @@ typedef struct
   float cam_angle;
   float cam_velocity;
   float cam_fov;
+  float max_distance;
+  unsigned char can_debug;
   FPSmanager fpsman;
   entity_t player;
   float camera_height_offset; /* NOTE: can vary up or down. May use with sinewave to simulate walking and dying*/
+  float camera_ydiff_max;
   /* NOTE: redundant because it can just scan over the map tiles and search for the type
   unsigned int player_startx;
   unsigned int player_starty;
