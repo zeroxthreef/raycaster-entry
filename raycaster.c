@@ -290,7 +290,12 @@ void render(map_settings_t *map)
           }
           else
           {
-            if(internal_testRayIntersection(&interx, &intery, pointx[0], pointy[0], pointx[3], pointy[3], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians((map->cam_angle + map->cam_fov) * j / map->win_width)),  map->max_distance * sin(degrees_to_radians((map->cam_angle + map->cam_fov) * j / map->win_width))))
+            lastx = pointx[0];
+            lasty = pointy[0];
+            firstx = lastx;
+            firsty = lasty;
+
+          if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[3], pointy[3], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
             {
               distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
               if(distance < closestdistance)
@@ -299,14 +304,10 @@ void render(map_settings_t *map)
                 closestx = interx;
                 closesty = intery;
                 face = (unsigned char)ii;
-                
+                last_type = map->tiles[i].type;
+
               }
             }
-
-            lastx = pointx[0];
-            lasty = pointy[0];
-            firstx = lastx;
-            firsty = lasty;
           }
         }
       }

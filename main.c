@@ -53,7 +53,7 @@ int init()
   map.win_width = 800;
   map.win_height = 600;
   map.max_distance = 100.0f;
-  map.can_debug = 1;
+  map.can_debug = 0;
   map.camera_height_offset = 0.0f;
   map.camera_ydiff_max = 4.0f;
 
