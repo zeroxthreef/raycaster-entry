@@ -43,9 +43,6 @@ int init()
   printf("initializing\n");
   SDL_Init(SDL_INIT_EVERYTHING);
 
-  SDL_initFramerate(&map.fpsman);
-  SDL_setFramerate(&map.fpsman, 60);
-
 
 
   map.cam_angle = 0; /* need to set these inside the .map map files */
@@ -53,9 +50,10 @@ int init()
   map.win_width = 800;
   map.win_height = 600;
   map.max_distance = 100.0f;
-  map.can_debug = 0;
+  map.can_debug = 1;
   map.camera_height_offset = 0.0f;
   map.camera_ydiff_max = 4.0f;
+  map.thread_count = 2;
 
   raycaster_initbasics(&map);
 
@@ -104,7 +102,9 @@ void destroy()
 
 void loop()
 {
+	int lastTime = SDL_GetTicks(), skipTime = 0, currentTime = 0, lastframeLag = 0, frameskipNum = 0;
   printf("running\n");
+
   while(!quit)
   {
     /* events */
@@ -147,10 +147,40 @@ void loop()
     }
     /* logic */
     logic();
+
     /* rendering */
-    render(&map);
+    if(!lastframeLag)
+    {
+      render(&map, 0, 0);
+    }
+    else
+    {
+      lastframeLag = 0;
+    }
+    lastTime += 1000/60;
+		currentTime = SDL_GetTicks();
+
+		skipTime = lastTime - currentTime;
+
     /* delaying */
-    SDL_framerateDelay(&map.fpsman); /* decided to use whats already here. I already know how to make a fixed timestep gameloop */
+    if(skipTime >= 0)
+    {
+			SDL_Delay(skipTime);
+		}
+    else
+    {
+			printf("running %dms behind on rendering\n", abs(skipTime));
+      if(frameskipNum < 200) /* only 200 max skipped frames per round */
+      {
+        lastframeLag = 1;
+        frameskipNum++;
+      }
+      else
+      {
+        frameskipNum = 0;
+      }
+
+		}
   }
 }
 

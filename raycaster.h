@@ -41,7 +41,8 @@ typedef struct
   float cam_fov;
   float max_distance;
   unsigned char can_debug;
-  FPSmanager fpsman;
+  unsigned char thread_count; /* set to 0 if only single threading */
+  unsigned char *threadnum_done; /* have each thread access its index to signal the screen to render */
   entity_t player;
   float camera_height_offset; /* NOTE: can vary up or down. May use with sinewave to simulate walking and dying*/
   float camera_ydiff_max;
@@ -65,7 +66,7 @@ enum
 };
 
 
-void render(map_settings_t *map);
+void render(map_settings_t *map, unsigned char threadcount, unsigned char threadnum);
 
 int raycaster_initbasics(map_settings_t *map);
 

@@ -176,13 +176,16 @@ static int internal_testRayIntersection(float *intersectx, float *intersecty, fl
 static void internal_drawDebug(map_settings_t *map)
 {
   SDL_version version;
+  static unsigned int start = 0;
   char *fps_string = NULL;
   char *playerx_string = NULL;
   char *playery_string = NULL;
   char *playerangle_string = NULL;
   char *compile_string = NULL;
   char *link_string = NULL;
-  stringRGBA(mainrenderer, 0, 0, "FPS: TODO", 255, 255, 255, 255); /* TODO do it right */
+
+  internal_asprintf(&fps_string, "fps: %d", 1000/(SDL_GetTicks() - start));
+  stringRGBA(mainrenderer, 0, 0, fps_string, 255, 255, 255, 255); /* TODO do it right */
   internal_asprintf(&playerx_string, "player x: %f", map->player.x);
   stringRGBA(mainrenderer, 0, 8, playerx_string, 255, 255, 255, 255);
   internal_asprintf(&playery_string, "player y: %f", map->player.y);
@@ -196,6 +199,8 @@ static void internal_drawDebug(map_settings_t *map)
   internal_asprintf(&link_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
   stringRGBA(mainrenderer, 0, 40, link_string, 255, 255, 255, 255);
 
+  /*diff = SDL_GetTicks() - start; */
+
   /* free everything */
   free(fps_string);
   free(playerx_string);
@@ -203,12 +208,14 @@ static void internal_drawDebug(map_settings_t *map)
   free(playerangle_string);
   free(compile_string);
   free(link_string);
+
+  start = SDL_GetTicks();
 }
 
 /* global functions */
 
 
-void render(map_settings_t *map)
+void render(map_settings_t *map, unsigned char threadcount, unsigned char threadnum)
 {
   /* for the main window */
   /* ================================== */
