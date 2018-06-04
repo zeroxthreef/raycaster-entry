@@ -1,5 +1,12 @@
 #include "raycaster.h"
 
+/* the images */
+#include "hud0.h"
+#include "hud1.h"
+#include "hud2.h"
+#include "ball.h"
+#include "died.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -13,8 +20,14 @@ SDL_Renderer *mainrenderer = NULL;
 SDL_Renderer *debugrenderer = NULL;
 SDL_Rect temprect; /* general purpose rect */
 
+typedef struct
+{
+  unsigned char id;
+  map_settings_t *map;
+} thread_data_t;
 
-static short internal_asprintf(char **string, const char *fmt, ...) /* took this from my DisC library. Too lazy to make it again */
+
+short internal_asprintf(char **string, const char *fmt, ...) /* took this from my DisC library. Too lazy to make it again */
 {
   va_list list;
   char *tempString = NULL;
@@ -212,10 +225,161 @@ static void internal_drawDebug(map_settings_t *map)
   start = SDL_GetTicks();
 }
 
+static int internal_threadDoWork(void *data)
+{
+  /* do work until done and wait for frame to finish then go again */
+  thread_data_t *tdata = (thread_data_t *)data;
+
+  /* do the render loop in here */
+  while(!tdata->map->quit)
+  {
+    render(tdata->map, tdata->id);
+    printf("rendering\n");
+    tdata->map->threadnum_done[tdata->id - 1] = 1;
+  }
+
+  printf("exitting %d\n", tdata->id);
+
+  free(tdata);
+  return 0;
+}
+
+static int internal_createTexHeader(SDL_Renderer *renderer, SDL_Texture **tex, const unsigned char *dataPtr, unsigned int len){
+  SDL_Surface *loadSurface = NULL;
+  int pass = 1;
+  loadSurface = SDL_LoadBMP_RW(SDL_RWFromMem(dataPtr, len), 0);
+  if(loadSurface == NULL)
+  {
+    pass--;
+  }
+  SDL_SetColorKey(loadSurface, SDL_TRUE, SDL_MapRGB(loadSurface->format, 255, 0, 128));
+
+  *tex = SDL_CreateTextureFromSurface(renderer, loadSurface);
+  SDL_SetTextureBlendMode(*tex, SDL_BLENDMODE_BLEND);
+  SDL_FreeSurface(loadSurface);
+  return pass;
+}
+
+static void internal_drawGUI(map_settings_t *map)
+{
+  /* draw skin */
+  static unsigned char lastSkin = -1; /* wrap around */
+  static SDL_Texture *tex = NULL, *death = NULL;
+
+  if(death == NULL)
+    internal_createTexHeader(mainrenderer, &death, died_bmp, died_bmp_len);
+
+  if(lastSkin != map->player.type)
+  {
+    if(tex != NULL)
+      SDL_DestroyTexture(tex);
+
+    switch(map->player.type)
+    {
+      case ENTITY_PLAYER_0:
+        internal_createTexHeader(mainrenderer, &tex, hud0_bmp, hud0_bmp_len);
+      break;
+      case ENTITY_PLAYER_1:
+        internal_createTexHeader(mainrenderer, &tex, hud1_bmp, hud1_bmp_len);
+      break;
+      case ENTITY_PLAYER_2:
+        internal_createTexHeader(mainrenderer, &tex, hud2_bmp, hud2_bmp_len);
+      break;
+    }
+    lastSkin = map->player.type;
+  }
+
+  SDL_RenderCopy(mainrenderer, tex, NULL, NULL);
+
+  /* draw text */
+  stringRGBA(mainrenderer, map->win_width - 490, 0, "Player type (press \"\\\" to cycle player type): ", 255, 255, 255, 255);
+  switch(map->player.type)
+  {
+    case ENTITY_PLAYER_0:
+      stringRGBA(mainrenderer, map->win_width - 120, 0, "a stick figure", 255, 255, 255, 255);
+    break;
+
+    case ENTITY_PLAYER_1:
+      stringRGBA(mainrenderer, map->win_width - 120, 0, "a cat", 255, 255, 255, 255);
+    break;
+
+    case ENTITY_PLAYER_2:
+      stringRGBA(mainrenderer, map->win_width - 120, 0, "a dragon", 255, 255, 255, 255);
+    break;
+  }
+
+  stringRGBA(mainrenderer, map->win_width - 490, 10, "Press F1 to connect to a server", 255, 255, 255, 255);
+
+  if(map->player.health == 0)
+    SDL_RenderCopy(mainrenderer, death, NULL, NULL);
+
+}
+
+void internal_RenderConnectbox(map_settings_t *map)
+{
+  char *temp = NULL;
+
+  temprect.x = map->win_width/2 - 250 + 10;
+  temprect.y = map->win_height/2 - 40 + 10;
+  temprect.w = 500;
+  temprect.h = 80;
+
+  SDL_SetRenderDrawColor(mainrenderer, 68, 68, 68, 100);
+  SDL_RenderFillRect(mainrenderer, &temprect);
+
+  temprect.x = map->win_width/2 - 250;
+  temprect.y = map->win_height/2 - 40;
+  temprect.w = 500;
+  temprect.h = 80;
+
+  SDL_SetRenderDrawColor(mainrenderer, 108, 108, 108, 100);
+  SDL_RenderFillRect(mainrenderer, &temprect);
+
+  if(map->display_connectbox == 1)
+  {
+    internal_asprintf(&temp, "Server IP(enter IPv4 only. No domain names): %s", map->ip_str);
+    stringRGBA(mainrenderer, map->win_width/2 - 240, map->win_height / 2, temp, 255, 255, 255, 255);
+  }
+  else if(map->display_connectbox == 2)
+  {
+    internal_asprintf(&temp, "Nickname (10 chars max): %s", map->player.name);
+    stringRGBA(mainrenderer, map->win_width/2 - 240, map->win_height / 2, temp, 255, 255, 255, 255);
+  }
+  else
+  {
+    free(temp);
+    stringRGBA(mainrenderer, map->win_width/2 - 240, map->win_height / 2, "Connecting...", 255, 255, 255, 255);
+  }
+}
+
 /* global functions */
 
+int init_threads(map_settings_t *map)
+{
+  unsigned char i, returnval = 0;
+  thread_data_t *tdata;
+  SDL_Thread *temp = NULL;
+  printf("creating render %d threads\n", map->thread_count);
 
-void render(map_settings_t *map, unsigned char threadcount, unsigned char threadnum)
+  for(i = 0; i < map->thread_count; i++)
+  {
+    tdata = calloc(1, sizeof(thread_data_t));/* remember to free this from within the thread */
+    tdata->id = i + 1;
+    tdata->map = map;
+
+    temp = SDL_CreateThread(internal_threadDoWork, "renderthread", tdata);
+    if(temp == NULL)
+    {
+      returnval = 1;
+      printf("couldnt create renderthread %d\n", i);
+    }
+  }
+
+  return returnval;
+}
+
+
+void render(map_settings_t *map, unsigned char threadnum) /* not the actual thread function. Just call this from threads */
 {
   /* for the main window */
   /* ================================== */
@@ -233,7 +397,9 @@ void render(map_settings_t *map, unsigned char threadcount, unsigned char thread
   unsigned char face; /*1 of 4 */
   unsigned char last_type;
   unsigned char r, g, b;
+  unsigned char canrender;
 
+  /* TODO: only render the lines of the screen for the current rays. Remember to predict the placement */
   temprect.x = 0;
   temprect.y = 0;
   temprect.w = map->win_width;
@@ -248,142 +414,48 @@ void render(map_settings_t *map, unsigned char threadcount, unsigned char thread
   SDL_RenderFillRect(mainrenderer, &temprect);
 
 
-
   for(j = 0; j < map->win_width; j++)
   {
-    closestdistance = map->max_distance;
-
-    for(i = 0; i < map->width * map->height; i++)
+    if(j % map->thread_count == threadnum && map->thread_count > 1)
     {
-
-      if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART) /* filter out things that shouldnt interferre with the raycast */
-      {
-        pointx[0] = map->tiles[i].posx;/* top left */
-        pointy[0] = map->tiles[i].posy;
-        pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
-        pointy[1] = map->tiles[i].posy;
-        pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
-        pointy[2] = map->tiles[i].posy + 1.0f;
-        pointx[3] = map->tiles[i].posx;/* bottom left */
-        pointy[3] = map->tiles[i].posy + 1.0f;
-
-        for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
-        {
-          angle = (map->cam_angle - map->cam_fov/2) + ((map->cam_fov * j) / map->win_width);
-          distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y));
-          fov0 = map->cam_angle - map->cam_fov/2;
-          fov1 = map->cam_angle + map->cam_fov/2;
-
-
-          if(ii != 0) /* skip over 0 because I use last and current NOTE: remember to set a lowest distance variable and only change it if the distance gets closer. might wanna set the vertex too*/
-          {
-            if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[ii], pointy[ii], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
-            {
-              distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
-              if(distance < closestdistance)
-              {
-                closestdistance = distance;
-                closestx = interx;
-                closesty = intery;
-                face = (unsigned char)ii;
-                last_type = map->tiles[i].type;
-
-              }
-            }
-
-
-            lastx = pointx[ii];
-            lasty = pointy[ii];
-          }
-          else
-          {
-            lastx = pointx[0];
-            lasty = pointy[0];
-            firstx = lastx;
-            firsty = lasty;
-
-          if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[3], pointy[3], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
-            {
-              distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
-              if(distance < closestdistance)
-              {
-                closestdistance = distance;
-                closestx = interx;
-                closesty = intery;
-                face = (unsigned char)ii;
-                last_type = map->tiles[i].type;
-
-              }
-            }
-          }
-        }
-      }
+      canrender = 1;
     }
-    //float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
-    if(closestdistance != map->max_distance)
+    else if(map->thread_count == 1)
+      canrender = 1;
+    else
     {
-      float liney0 = map->win_height/2 - (map->win_height / closestdistance / 4); /* top so it goes negative */
-      float liney1 = map->win_height/2 + (map->win_height / closestdistance / 4); /* bottom so it goes positive */
-      /*liney0 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance); */
-      /*liney1 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance);*/
-
-      internal_colorCalc(map, closestdistance, face, last_type, &r, &g, &b);
-      lineRGBA(mainrenderer, j, liney0, j, liney1, r, g, b, 255);
+      canrender = 0;
     }
-  }
 
-  /* debugging after this */
-
-  if(map->can_debug)
-  {
-    for(i = 0; i < map->width * map->height; i++)
+    if(canrender)
     {
-      /* second real ray attempt. Testing in the debug window first */
+      closestdistance = map->max_distance;
 
-      /* draw the real blocks. First attempt. Cast out (window width) rays and get intersections + distance for fog. Might need to just test for box edges */
-      if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART) /* filter out things that shouldnt interferre with the raycast */
+      for(i = 0; i < map->width * map->height; i++)
       {
-        pointx[0] = map->tiles[i].posx;/* top left */
-        pointy[0] = map->tiles[i].posy;
-        pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
-        pointy[1] = map->tiles[i].posy;
-        pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
-        pointy[2] = map->tiles[i].posy + 1.0f;
-        pointx[3] = map->tiles[i].posx;/* bottom left */
-        pointy[3] = map->tiles[i].posy + 1.0f;
 
-        for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
+        if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART) /* filter out things that shouldnt interferre with the raycast */
         {
-          angle = atan2f(pointy[ii] - map->player.y, pointx[ii] - map->player.x);
-          distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y));
-          fov0 = map->cam_angle - map->cam_fov/2;
-          fov1 = map->cam_angle + map->cam_fov/2;
+          pointx[0] = map->tiles[i].posx;/* top left */
+          pointy[0] = map->tiles[i].posy;
+          pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
+          pointy[1] = map->tiles[i].posy;
+          pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
+          pointy[2] = map->tiles[i].posy + 1.0f;
+          pointx[3] = map->tiles[i].posx;/* bottom left */
+          pointy[3] = map->tiles[i].posy + 1.0f;
 
-          //printf("fov1 %f fov2 %f", fov0, fov1);
-          if(angle > degrees_to_radians(fov0) && angle < degrees_to_radians(fov1))
+          for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
           {
-            /* do the real raycasting tests. Send out a ray within the fov at the width number of pixels */
+            angle = (map->cam_angle - map->cam_fov/2) + ((map->cam_fov * j) / map->win_width);
+            distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y));
+            fov0 = map->cam_angle - map->cam_fov/2;
+            fov1 = map->cam_angle + map->cam_fov/2;
 
-            /* temporary line and distance persp test */
-            float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
-            float liney0 = map->win_height/2 - (map->win_height / distance / 4); /* top so it goes negative */
-            float liney1 = map->win_height/2 + (map->win_height / distance / 4); /* bottom so it goes positive */
-            thickLineRGBA(mainrenderer, linex, liney0, linex, liney1, 4, 255, 255, 255, 255);
-            if(map->can_debug)
-            {
-              /* text at top */
-              if(ii == 0)
-                stringRGBA(mainrenderer, linex, liney0, "point 0", 255, 255, 255, 255);
-              if(ii == 1)
-                stringRGBA(mainrenderer, linex, liney0, "point 1", 255, 255, 255, 255);
-              if(ii == 2)
-                stringRGBA(mainrenderer, linex, liney0, "point 2", 255, 255, 255, 255);
-              if(ii == 3)
-                stringRGBA(mainrenderer, linex, liney0, "point 3", 255, 255, 255, 255);
-            }
+
             if(ii != 0) /* skip over 0 because I use last and current NOTE: remember to set a lowest distance variable and only change it if the distance gets closer. might wanna set the vertex too*/
             {
-              if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[ii], pointy[ii], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(map->cam_angle)),  map->max_distance * sin(degrees_to_radians(map->cam_angle))))
+              if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[ii], pointy[ii], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
               {
                 distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
                 if(distance < closestdistance)
@@ -391,6 +463,9 @@ void render(map_settings_t *map, unsigned char threadcount, unsigned char thread
                   closestdistance = distance;
                   closestx = interx;
                   closesty = intery;
+                  face = (unsigned char)ii;
+                  last_type = map->tiles[i].type;
+
                 }
               }
 
@@ -402,132 +477,271 @@ void render(map_settings_t *map, unsigned char threadcount, unsigned char thread
             {
               lastx = pointx[0];
               lasty = pointy[0];
+              firstx = lastx;
+              firsty = lasty;
+
+            if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[3], pointy[3], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
+              {
+                distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
+                if(distance < closestdistance)
+                {
+                  closestdistance = distance;
+                  closestx = interx;
+                  closesty = intery;
+                  face = (unsigned char)ii;
+                  last_type = map->tiles[i].type;
+
+                }
+              }
+            }
+          }
+        }
+      }
+      //float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
+      if(closestdistance != map->max_distance)
+      {
+        float liney0 = map->win_height/2 - (map->win_height / closestdistance / 4); /* top so it goes negative */
+        float liney1 = map->win_height/2 + (map->win_height / closestdistance / 4); /* bottom so it goes positive */
+        /*liney0 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance); */
+        /*liney1 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance);*/
+
+        internal_colorCalc(map, closestdistance, face, last_type, &r, &g, &b);
+        lineRGBA(mainrenderer, j, liney0, j, liney1, r, g, b, 255);
+      }
+    }
+  }
+
+
+  /* debugging after this */
+
+  if(threadnum = 1 || map->thread_count == 1) /* NOTE: only draw this on a single thread */
+  {
+    if(map->can_debug) /* TODO do this on one thread */
+    {
+      for(i = 0; i < map->width * map->height; i++)
+      {
+        /* second real ray attempt. Testing in the debug window first */
+
+        /* draw the real blocks. First attempt. Cast out (window width) rays and get intersections + distance for fog. Might need to just test for box edges */
+        if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART) /* filter out things that shouldnt interferre with the raycast */
+        {
+          pointx[0] = map->tiles[i].posx;/* top left */
+          pointy[0] = map->tiles[i].posy;
+          pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
+          pointy[1] = map->tiles[i].posy;
+          pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
+          pointy[2] = map->tiles[i].posy + 1.0f;
+          pointx[3] = map->tiles[i].posx;/* bottom left */
+          pointy[3] = map->tiles[i].posy + 1.0f;
+
+          for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
+          {
+            angle = atan2f(pointy[ii] - map->player.y, pointx[ii] - map->player.x);
+            distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y));
+            fov0 = map->cam_angle - map->cam_fov/2;
+            fov1 = map->cam_angle + map->cam_fov/2;
+
+            //printf("fov1 %f fov2 %f", fov0, fov1);
+            if(angle > degrees_to_radians(fov0) && angle < degrees_to_radians(fov1))
+            {
+              /* do the real raycasting tests. Send out a ray within the fov at the width number of pixels */
+
+              /* temporary line and distance persp test */
+              float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
+              float liney0 = map->win_height/2 - (map->win_height / distance / 4); /* top so it goes negative */
+              float liney1 = map->win_height/2 + (map->win_height / distance / 4); /* bottom so it goes positive */
+              thickLineRGBA(mainrenderer, linex, liney0, linex, liney1, 4, 255, 255, 255, 255);
+              if(map->can_debug)
+              {
+                /* text at top */
+                if(ii == 0)
+                  stringRGBA(mainrenderer, linex, liney0, "point 0", 255, 255, 255, 255);
+                if(ii == 1)
+                  stringRGBA(mainrenderer, linex, liney0, "point 1", 255, 255, 255, 255);
+                if(ii == 2)
+                  stringRGBA(mainrenderer, linex, liney0, "point 2", 255, 255, 255, 255);
+                if(ii == 3)
+                  stringRGBA(mainrenderer, linex, liney0, "point 3", 255, 255, 255, 255);
+              }
+              if(ii != 0) /* skip over 0 because I use last and current NOTE: remember to set a lowest distance variable and only change it if the distance gets closer. might wanna set the vertex too*/
+              {
+                if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[ii], pointy[ii], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(map->cam_angle)),  map->max_distance * sin(degrees_to_radians(map->cam_angle))))
+                {
+                  distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
+                  if(distance < closestdistance)
+                  {
+                    closestdistance = distance;
+                    closestx = interx;
+                    closesty = intery;
+                  }
+                }
+
+
+                lastx = pointx[ii];
+                lasty = pointy[ii];
+              }
+              else
+              {
+                lastx = pointx[0];
+                lasty = pointy[0];
+              }
             }
           }
         }
       }
     }
-  }
 
-  /*
-  Sint16 xp[] = {20, 60, 30, 50};
-  Sint16 yp[] = {100, 200, 200, 100};
+    /*
+    Sint16 xp[] = {20, 60, 30, 50};
+    Sint16 yp[] = {100, 200, 200, 100};
 
-  filledPolygonRGBA(mainrenderer, xp, yp, 4, 255, 0, 0, 255);
-  */
+    filledPolygonRGBA(mainrenderer, xp, yp, 4, 255, 0, 0, 255);
+    */
 
-  //printf("framerate %d\n", SDL_getFramecount(&map->fpsman));
+    //printf("framerate %d\n", SDL_getFramecount(&map->fpsman));
 
 
-  if(map->can_debug)
-    internal_drawDebug(map);
-  /* ================================== */
-  SDL_SetRenderDrawColor(mainrenderer, 0, 0, 0, 255);
-  SDL_RenderPresent(mainrenderer);
-  SDL_RenderClear(mainrenderer);
-  /* ================================== */
-
-  /* for the debug window */
-  /* ================================== */
-  if(map->can_debug)
-  {
-    size_t i, ii;
-    for(i = 0; i < map->width * map->height; i++)
+    internal_drawGUI(map);
+    if(map->can_debug)
+      internal_drawDebug(map);
+    if(map->display_connectbox)
+      internal_RenderConnectbox(map);
+    /* ================================== */
+    SDL_SetRenderDrawColor(mainrenderer, 0, 0, 0, 255);
+    /* make sure all threads finished */
+    if(map->thread_count > 1 && threadnum == 1)
     {
-      SDL_SetRenderDrawColor(debugrenderer, map->tiles[i].type * 120 + 20, map->tiles[i].type * 200 + 50, map->tiles[i].type * 400 + 213, 200);
-      temprect.x = ((i % map->width) * MAPSCALE);
-      temprect.y = ((i / map->height) * MAPSCALE);
-      temprect.w = MAPSCALE;
-      temprect.h = MAPSCALE;
-
-      SDL_RenderFillRect(debugrenderer, &temprect);
-      SDL_SetRenderDrawColor(debugrenderer, map->tiles[i].type * 120 + 10, map->tiles[i].type * 200 + 25, map->tiles[i].type * 400 + 120, 200);
-      SDL_RenderDrawRect(debugrenderer, &temprect);
-    }
-
-    /* draw the player, fov, and direction */
-    SDL_SetRenderDrawColor(debugrenderer, 220, 255, 160, 255);
-    temprect.x = map->player.x  * MAPSCALE - 3;
-    temprect.y = map->player.y * MAPSCALE - 3;
-    temprect.w = 7;
-    temprect.h = 7;
-    SDL_RenderFillRect(debugrenderer, &temprect);
-
-    SDL_SetRenderDrawColor(debugrenderer, 255, 70, 10, 255);
-    SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.y * MAPSCALE);
-    SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.y * MAPSCALE);
-
-    SDL_SetRenderDrawColor(debugrenderer, 255, 7, 1, 255);
-    SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle)) * FOVRENDERDISTANCE * 1.3) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle)) * FOVRENDERDISTANCE * 1.3) + map->player.y * MAPSCALE);
-
-    /* draw lines to everything in the fov */
-
-    for(i = 0; i < map->width * map->height; i++)
-    {
-      if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART)
+      int done = 0, i;
+      /* only let the first thread control this */
+      while(done != 3)/* leaving it to 3 because it's always holding this thread back */
       {
-        pointx[0] = map->tiles[i].posx;/* top left */
-        pointy[0] = map->tiles[i].posy;
-        pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
-        pointy[1] = map->tiles[i].posy;
-        pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
-        pointy[2] = map->tiles[i].posy + 1.0f;
-        pointx[3] = map->tiles[i].posx;/* bottom left */
-        pointy[3] = map->tiles[i].posy + 1.0f;
-        /*
-        square.p0x = map->tiles[i].posx;
-        square.p0y = map->tiles[i].posy;
-        square.p1x = map->tiles[i].posx + 1.0f;
-        square.p1y = map->tiles[i].posy;
-        square.p2x = map->tiles[i].posx + 1.0f;
-        square.p2y = map->tiles[i].posy + 1.0f;
-        square.p3x = map->tiles[i].posx;
-        square.p3y = map->tiles[i].posy + 1.0f;
-        */
-        for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
+        for(i = 0; i < map->thread_count; i++)
         {
-          angle = atan2f(pointy[ii] - map->player.y, pointx[ii] - map->player.x);
-          distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y)) * MAPSCALE;
-          fov0 = map->cam_angle - map->cam_fov/2;
-          fov1 = map->cam_angle + map->cam_fov/2;
 
-          //printf("fov1 %f fov2 %f", fov0, fov1);
-          if(angle > degrees_to_radians(fov0) && angle < degrees_to_radians(fov1))
+          if(map->threadnum_done[i] == 1)
           {
-            SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(angle) * distance) + map->player.x * MAPSCALE, (sin(angle) * distance) + map->player.y * MAPSCALE);
-            //printf("angle %f fov1 %f fov 2 %f facing", radians_to_degrees(angle), fov0, fov1);
-
+            printf("%d\n", done);
+            map->threadnum_done[i] = 2;
+            done++;
           }
-          //printf("\n");
+        }
+      }
+
+      SDL_RenderPresent(mainrenderer);
+      SDL_RenderClear(mainrenderer);
+    }
+    else if(map->thread_count == 1)
+    {
+      SDL_RenderPresent(mainrenderer);
+      SDL_RenderClear(mainrenderer);
+    }
+    /* ================================== */
+
+    /* for the debug window */
+    /* ================================== */
+    if(map->can_debug)
+    {
+      size_t i, ii;
+      for(i = 0; i < map->width * map->height; i++)
+      {
+        SDL_SetRenderDrawColor(debugrenderer, map->tiles[i].type * 120 + 20, map->tiles[i].type * 200 + 50, map->tiles[i].type * 400 + 213, 200);
+        temprect.x = ((i % map->width) * MAPSCALE);
+        temprect.y = ((i / map->height) * MAPSCALE);
+        temprect.w = MAPSCALE;
+        temprect.h = MAPSCALE;
+
+        SDL_RenderFillRect(debugrenderer, &temprect);
+        SDL_SetRenderDrawColor(debugrenderer, map->tiles[i].type * 120 + 10, map->tiles[i].type * 200 + 25, map->tiles[i].type * 400 + 120, 200);
+        SDL_RenderDrawRect(debugrenderer, &temprect);
+      }
+
+      /* draw the player, fov, and direction */
+      SDL_SetRenderDrawColor(debugrenderer, 220, 255, 160, 255);
+      temprect.x = map->player.x  * MAPSCALE - 3;
+      temprect.y = map->player.y * MAPSCALE - 3;
+      temprect.w = 7;
+      temprect.h = 7;
+      SDL_RenderFillRect(debugrenderer, &temprect);
+
+      SDL_SetRenderDrawColor(debugrenderer, 255, 70, 10, 255);
+      SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.y * MAPSCALE);
+      SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->player.y * MAPSCALE);
+
+      SDL_SetRenderDrawColor(debugrenderer, 255, 7, 1, 255);
+      SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(degrees_to_radians(map->cam_angle)) * FOVRENDERDISTANCE * 1.3) + map->player.x * MAPSCALE, (sin(degrees_to_radians(map->cam_angle)) * FOVRENDERDISTANCE * 1.3) + map->player.y * MAPSCALE);
+
+      /* draw lines to everything in the fov */
+
+      for(i = 0; i < map->width * map->height; i++)
+      {
+        if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART)
+        {
+          pointx[0] = map->tiles[i].posx;/* top left */
+          pointy[0] = map->tiles[i].posy;
+          pointx[1] = map->tiles[i].posx + 1.0f;/* top right */
+          pointy[1] = map->tiles[i].posy;
+          pointx[2] = map->tiles[i].posx + 1.0f;/* bottom right */
+          pointy[2] = map->tiles[i].posy + 1.0f;
+          pointx[3] = map->tiles[i].posx;/* bottom left */
+          pointy[3] = map->tiles[i].posy + 1.0f;
+          /*
+          square.p0x = map->tiles[i].posx;
+          square.p0y = map->tiles[i].posy;
+          square.p1x = map->tiles[i].posx + 1.0f;
+          square.p1y = map->tiles[i].posy;
+          square.p2x = map->tiles[i].posx + 1.0f;
+          square.p2y = map->tiles[i].posy + 1.0f;
+          square.p3x = map->tiles[i].posx;
+          square.p3y = map->tiles[i].posy + 1.0f;
+          */
+          for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
+          {
+            angle = atan2f(pointy[ii] - map->player.y, pointx[ii] - map->player.x);
+            distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y)) * MAPSCALE;
+            fov0 = map->cam_angle - map->cam_fov/2;
+            fov1 = map->cam_angle + map->cam_fov/2;
+
+            //printf("fov1 %f fov2 %f", fov0, fov1);
+            if(angle > degrees_to_radians(fov0) && angle < degrees_to_radians(fov1))
+            {
+              SDL_RenderDrawLine(debugrenderer, map->player.x * MAPSCALE , map->player.y * MAPSCALE , (cos(angle) * distance) + map->player.x * MAPSCALE, (sin(angle) * distance) + map->player.y * MAPSCALE);
+              //printf("angle %f fov1 %f fov 2 %f facing", radians_to_degrees(angle), fov0, fov1);
+
+            }
+            //printf("\n");
+          }
+
+
+
         }
 
-
-
       }
 
 
-      //for(ii = 0; ii < map->win_width; ii++) /* remember to test for rays on this attempt. TODO come back */
-      {
-
-
-
-      }
+      /* ================================== */
+      SDL_SetRenderDrawColor(debugrenderer, 0, 0, 0, 0);
+      SDL_RenderPresent(debugrenderer);
+      SDL_RenderClear(debugrenderer);
     }
-
-
     /* ================================== */
-    SDL_SetRenderDrawColor(debugrenderer, 0, 0, 0, 0);
-    SDL_RenderPresent(debugrenderer);
-    SDL_RenderClear(debugrenderer);
   }
-  /* ================================== */
+
+
+}
+
+void changeDebugwinState(unsigned char st)
+{
+  if(st)
+    SDL_ShowWindow(debugwin);
+  else
+    SDL_HideWindow(debugwin);
 }
 
 int raycaster_initbasics(map_settings_t *map)
 {
   map->camera_height_offset = 0;
   mainwin = SDL_CreateWindow("rey castor - entry for the gaia raycaster challenge 2018 - 0x3F", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, map->win_width, map->win_height, SDL_WINDOW_SHOWN);
-  debugwin = SDL_CreateWindow("map debug window", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 550, 550, SDL_WINDOW_SHOWN);
+  debugwin = SDL_CreateWindow("map debug window", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 550, 550, SDL_WINDOW_HIDDEN);
 
   mainrenderer = SDL_CreateRenderer(mainwin, -1, SDL_RENDERER_ACCELERATED);
   debugrenderer = SDL_CreateRenderer(debugwin, -1, SDL_RENDERER_ACCELERATED);

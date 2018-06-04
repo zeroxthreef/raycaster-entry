@@ -7,11 +7,13 @@ TODO multiple levels
 #include "raycaster.h"
 
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_net.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 
 
 int init();
@@ -23,7 +25,9 @@ int clean_map(map_settings_t *map);
 
 SDL_Event event;
 map_settings_t map;
-unsigned char quit = 0;
+
+short connected = 0;
+
 
 
 int main(int argc, char **argv)
@@ -38,29 +42,173 @@ int main(int argc, char **argv)
   return 0;
 }
 
+Uint8 *internal_dataSerialize(Uint64 **len)
+{
+  /* only actually do something if any data has changed or its the first time */
+  char *px_str = NULL, *py_str = NULL, *pa_str = NULL;
+  static unsigned char first = 0;
+  static Uint8 *data = NULL;
+  static Uint8 *olddata = NULL;
+  Uint64 serialized_data = sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float) + sizeof(Uint8); /* messageheader name, type, position(x,y), angle, and health NOTE yeah, I know its not network byte order */
+
+
+  if(!first)
+  {
+    data = malloc(serialized_data);
+    if(data == NULL)
+    {
+      printf("mem alloc error\n");
+      return NULL;
+    }
+    olddata = calloc(1, serialized_data);
+    if(olddata == NULL)
+    {
+      printf("mem alloc error\n");
+      return NULL;
+    }
+    first = 1;
+  }
+
+  internal_asprintf(&px_str, "%f", map.player.x);
+  internal_asprintf(&py_str, "%f", map.player.y);
+  internal_asprintf(&pa_str, "%f", map.cam_angle);
+
+  data[0] = FLAG_RETURN_DETAILS; /* copy header */
+  memcpy(&data[sizeof(Uint8)], map.player.name, 10); /* copy name */
+  memcpy(&data[sizeof(Uint8) + 10], &map.player.type, sizeof(Uint8)); /* copy type */
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8)], &map.player.x, sizeof(float)); /* copy position x */
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(float)], &map.player.y, sizeof(float)); /* copy position y */
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))], &map.cam_angle, sizeof(float)); /* copy angle */
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float)], &map.player.health, sizeof(Uint8)); /* copy health */
+
+  /* set both and send if its changed only */
+
+  if(olddata[10] != data[10] || olddata[10 + sizeof(Uint8)] != data[10 + sizeof(Uint8)] || olddata[10 + sizeof(Uint8) + sizeof(float)] != data[10 + sizeof(Uint8)] + sizeof(float) || olddata[10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))] != data[10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))]) /* type, posx, posy, angle */
+  {
+    memcpy(olddata, data, serialized_data);
+    *len = serialized_data;
+    return data;
+
+  }
+  return NULL;
+}
+
+int network(void *data)
+{
+  IPaddress ip;
+  TCPsocket sock;
+  Uint8 *cdata = NULL;
+  Uint64 dlen = 0;
+
+
+  while(!map.quit)
+  {
+    if(connected == -1) /* connect to a server now */
+    {
+      size_t tlen;
+      Uint8 tdata[MAXSERVERPACKET];
+      printf("connecting to server %s\n", map.ip_str);
+
+      if(SDLNet_ResolveHost(&ip, map.ip_str, 19191) == -1)
+      {
+        printf("host resolve error\n");
+        SDL_Delay(600);
+        continue;
+      }
+
+      if((sock = SDLNet_TCP_Open(&ip)) == NULL)
+      {
+        printf("connection error\n");
+        SDL_Delay(600);
+        continue;
+      }
+
+      printf("connected\n");
+      /* do setup */
+      tlen = SDLNet_TCP_Recv(sock, tdata, MAXSERVERPACKET);
+      if(tlen == 0)
+      {
+        printf("connection error\n");
+      }
+      if(tdata[0] == FLAG_SERVER_RETURN_ID)
+      {
+        printf("server responded correctly and player entity id is %lu\n", (Uint64)tdata[1]);
+        map.player.id = (Uint64)tdata[1];
+        map.display_connectbox = 0;
+        connected = 1;
+
+        /* usually a good first thing to do */
+        if((cdata = internal_dataSerialize(&dlen)) != NULL)
+        {
+          printf("updating server with client data\n");
+          if(SDLNet_TCP_Send(sock, cdata, dlen) < dlen)
+          {
+            printf("data error. Client disconencted\n");
+            connected = 0;
+          }
+        }
+
+      }
+
+    }
+    else if(connected == 1)
+    {
+      /* listen to what the server has to say */
+
+
+
+      /* do the things to send data out */
+      if((cdata = internal_dataSerialize(&dlen)) != NULL)
+      {
+        printf("updating server with client data\n");
+        if(SDLNet_TCP_Send(sock, cdata, dlen) < dlen)
+        {
+          printf("data error. Client disconencted\n");
+          connected = 0;
+        }
+      }
+    }
+    SDL_Delay(25);
+  }
+  return 0;
+}
+
 int init()
 {
   printf("initializing\n");
   SDL_Init(SDL_INIT_EVERYTHING);
 
 
-
+  map.quit = 0;
   map.cam_angle = 0; /* need to set these inside the .map map files */
   map.cam_fov = 60;
   map.win_width = 800;
   map.win_height = 600;
   map.max_distance = 100.0f;
-  map.can_debug = 1;
+  map.can_debug = 0;
   map.camera_height_offset = 0.0f;
   map.camera_ydiff_max = 4.0f;
-  map.thread_count = 2;
+  map.thread_count = 1;
+  /*map.thread_count = SDL_GetCPUCount(); NOTE: didnt finish this on time. Probably could get it to work if I really wanted to */
+  map.threadnum_done = calloc(map.thread_count, sizeof(unsigned char));
+  map.player.name = calloc(10, sizeof(char));
+  map.ip_str = calloc(17, sizeof(char));
+  map.player.health = 100;
+  map.player.type = 0;
+  map.display_connectbox = 0;
+  map.text_entry_mode = 0;
 
   raycaster_initbasics(&map);
-
 
   /* temporary map init TODO, make an array of level names and order*/
 
   parse_map("level.map", &map);
+
+  if(map.thread_count > 1)
+    init_threads(&map);
+
+  if(SDL_CreateThread(network, "network thread", NULL) == NULL)
+    printf("couldn't start network thread\n");
 
   return 0;
 }
@@ -90,6 +238,13 @@ void logic()
     map.camera_height_offset = sin(i);
     i+= 0.3;
   }
+  if(!map.text_entry_mode && map.display_connectbox == 3)
+  {
+    connected = -1;
+  }
+  else if(!map.text_entry_mode && map.display_connectbox > 0)
+    map.display_connectbox = 0;
+
 
 }
 
@@ -97,6 +252,7 @@ void destroy()
 {
   printf("closing\n");
   raycaster_destroy();
+  SDLNet_Quit();
   SDL_Quit();
 }
 
@@ -105,44 +261,149 @@ void loop()
 	int lastTime = SDL_GetTicks(), skipTime = 0, currentTime = 0, lastframeLag = 0, frameskipNum = 0;
   printf("running\n");
 
-  while(!quit)
+  while(!map.quit)
   {
+    static unsigned char pressed = 0;
     /* events */
     while(SDL_PollEvent(&event))
     {
       if(event.type == SDL_QUIT)
-        quit = (unsigned char)1;
-      if(event.type == SDL_KEYDOWN)
+        map.quit = (unsigned char)1;
+
+      if(!map.text_entry_mode)
       {
-        if(event.key.keysym.sym == SDLK_w)
-          map.player.vely = -1;
-        if(event.key.keysym.sym == SDLK_a)
-          map.player.velx = -1;
-        if(event.key.keysym.sym == SDLK_s)
-          map.player.vely = 1;
-        if(event.key.keysym.sym == SDLK_d)
-          map.player.velx = 1;
-        if(event.key.keysym.sym == SDLK_LEFT)
-          map.cam_velocity = -1;
-        if(event.key.keysym.sym == SDLK_RIGHT)
-          map.cam_velocity = 1;
-        if(event.key.keysym.sym == SDLK_ESCAPE)
-          quit = (unsigned char)1;
+        if(event.type == SDL_KEYDOWN)
+        {
+          if(event.key.keysym.sym == SDLK_w)
+            map.player.vely = -1;
+          if(event.key.keysym.sym == SDLK_a)
+            map.player.velx = -1;
+          if(event.key.keysym.sym == SDLK_s)
+            map.player.vely = 1;
+          if(event.key.keysym.sym == SDLK_d)
+            map.player.velx = 1;
+          if(event.key.keysym.sym == SDLK_LEFT)
+            map.cam_velocity = -1;
+          if(event.key.keysym.sym == SDLK_RIGHT)
+            map.cam_velocity = 1;
+          if(event.key.keysym.sym == SDLK_ESCAPE)
+            map.quit = (unsigned char)1;
+          /* general purpose keys */
+          if(event.key.keysym.sym == SDLK_BACKSLASH)
+          {
+            map.player.type += 1;
+            map.player.type %= 3;
+          }
+          if(event.key.keysym.sym == SDLK_BACKQUOTE)
+          {
+            if(!pressed)
+            {
+              map.can_debug += 1;
+              map.can_debug %= 2;
+              printf("debug toggled %d\n", map.can_debug);
+              changeDebugwinState(map.can_debug);
+              pressed = 1;
+            }
+          }
+          if(event.key.keysym.sym == SDLK_F1)
+          {
+            map.text_entry_mode = 1;
+            map.display_connectbox = 1;
+          }
+        }
+        if(event.type == SDL_KEYUP)
+        {
+          if(event.key.keysym.sym == SDLK_w)
+            map.player.vely = 0;
+          if(event.key.keysym.sym == SDLK_a)
+            map.player.velx = 0;
+          if(event.key.keysym.sym == SDLK_s)
+            map.player.vely = 0;
+          if(event.key.keysym.sym == SDLK_d)
+            map.player.velx = 0;
+          if(event.key.keysym.sym == SDLK_LEFT)
+            map.cam_velocity = 0;
+          if(event.key.keysym.sym == SDLK_RIGHT)
+            map.cam_velocity = 0;
+          if(event.key.keysym.sym == SDLK_BACKQUOTE)
+          {
+            pressed = 0;
+          }
+        }
       }
-      if(event.type == SDL_KEYUP)
+      else
       {
-        if(event.key.keysym.sym == SDLK_w)
-          map.player.vely = 0;
-        if(event.key.keysym.sym == SDLK_a)
-          map.player.velx = 0;
-        if(event.key.keysym.sym == SDLK_s)
-          map.player.vely = 0;
-        if(event.key.keysym.sym == SDLK_d)
-          map.player.velx = 0;
-        if(event.key.keysym.sym == SDLK_LEFT)
-          map.cam_velocity = 0;
-        if(event.key.keysym.sym == SDLK_RIGHT)
-          map.cam_velocity = 0;
+        SDL_StartTextInput();
+        static short pressed = 0;
+        if(event.type == SDL_KEYDOWN)
+        {
+          if(event.key.keysym.sym == SDLK_ESCAPE)
+            map.text_entry_mode = 0;
+          if(map.display_connectbox == 1)
+          {
+            if(event.key.keysym.sym == SDLK_BACKSPACE)
+              if(strlen(map.ip_str) != 0)
+                map.ip_str[strlen(map.ip_str) - 1] = 0x00;
+            if(event.key.keysym.sym == SDLK_RETURN)
+            if(!pressed)
+            {
+              map.display_connectbox++;
+              pressed++;
+            }
+          }
+          if(map.display_connectbox == 2)
+          {
+            if(event.key.keysym.sym == SDLK_BACKSPACE)
+              if(strlen(map.player.name) != 0)
+                map.player.name[strlen(map.player.name) - 1] = 0x00;
+            if(event.key.keysym.sym == SDLK_RETURN)
+            {
+              if(!pressed)
+              {
+                map.display_connectbox++; /* set this one more so the logic knows to connect */
+                map.text_entry_mode = 0;
+                SDL_StopTextInput();
+                pressed++;
+              }
+            }
+          }
+
+        }
+        else if(event.type == SDL_KEYUP)
+        {
+          if(map.display_connectbox == 1)
+          {
+            if(event.key.keysym.sym == SDLK_RETURN)
+            if(pressed)
+            {
+              pressed = 0;
+            }
+          }
+          if(map.display_connectbox == 2)
+          {
+            if(event.key.keysym.sym == SDLK_RETURN)
+            {
+              if(pressed)
+              {
+                pressed = 0;
+              }
+            }
+          }
+
+        }
+        else if(event.type = SDL_TEXTINPUT)
+        {
+          if(map.display_connectbox == 1)
+          {
+            if(strlen(map.ip_str) < 17)
+              strncat(map.ip_str, event.text.text, 1);
+          }
+          if(map.display_connectbox == 2)
+          {
+            if(strlen(map.player.name) < 10)
+              strncat(map.player.name, event.text.text, 1);
+          }
+        }
       }
     }
     /* logic */
@@ -151,7 +412,12 @@ void loop()
     /* rendering */
     if(!lastframeLag)
     {
-      render(&map, 0, 0);
+      if(map.thread_count == 1)
+        render(&map, 0);
+      else
+      {
+        /* tell all threads that its ok to render */
+      }
     }
     else
     {
