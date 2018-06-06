@@ -44,7 +44,7 @@ short internal_asprintf(char **string, const char *fmt, ...) /* took this from m
   va_end(list);
   va_start(list, fmt);
 
-  if((tempString = malloc(size + 1)) != NULL)
+  if((tempString = calloc(1, size + 1)) != NULL)
   {
     if(vsnprintf(tempString, size + 1, fmt, list) != -1)
     {

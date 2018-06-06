@@ -13,7 +13,9 @@ TODO multiple levels
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h>
 
+#define MAXENTITIES 100
 
 
 int init();
@@ -45,11 +47,16 @@ int main(int argc, char **argv)
 Uint8 *internal_dataSerialize(Uint64 **len)
 {
   /* only actually do something if any data has changed or its the first time */
+  static char *oldx = NULL, *oldy = NULL, *oldang = NULL;
   char *px_str = NULL, *py_str = NULL, *pa_str = NULL;
-  static unsigned char first = 0;
+  static unsigned char first = 0, oldtype = 0;
   static Uint8 *data = NULL;
-  static Uint8 *olddata = NULL;
-  Uint64 serialized_data = sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float) + sizeof(Uint8); /* messageheader name, type, position(x,y), angle, and health NOTE yeah, I know its not network byte order */
+
+  internal_asprintf(&px_str, "%f", map.player.x);
+  internal_asprintf(&py_str, "%f", map.player.y);
+  internal_asprintf(&pa_str, "%f", map.cam_angle);
+
+  Uint64 serialized_data = sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1) + (sizeof(Uint16) + strlen(pa_str) + 1) + sizeof(Uint8); /* messageheader name, type, position(x,y), angle, and health NOTE yeah, I know its not network byte order */
 
 
   if(!first)
@@ -60,8 +67,10 @@ Uint8 *internal_dataSerialize(Uint64 **len)
       printf("mem alloc error\n");
       return NULL;
     }
-    olddata = calloc(1, serialized_data);
-    if(olddata == NULL)
+    internal_asprintf(&oldx, "a");
+    internal_asprintf(&oldy, "a");
+    internal_asprintf(&oldang, "a");
+    if(oldx == NULL || oldy == NULL || oldang == NULL)
     {
       printf("mem alloc error\n");
       return NULL;
@@ -69,26 +78,37 @@ Uint8 *internal_dataSerialize(Uint64 **len)
     first = 1;
   }
 
-  internal_asprintf(&px_str, "%f", map.player.x);
-  internal_asprintf(&py_str, "%f", map.player.y);
-  internal_asprintf(&pa_str, "%f", map.cam_angle);
 
   data[0] = FLAG_RETURN_DETAILS; /* copy header */
   memcpy(&data[sizeof(Uint8)], map.player.name, 10); /* copy name */
   memcpy(&data[sizeof(Uint8) + 10], &map.player.type, sizeof(Uint8)); /* copy type */
-  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8)], &map.player.x, sizeof(float)); /* copy position x */
-  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(float)], &map.player.y, sizeof(float)); /* copy position y */
-  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))], &map.cam_angle, sizeof(float)); /* copy angle */
-  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float)], &map.player.health, sizeof(Uint8)); /* copy health */
 
+          data[sizeof(Uint8) + 10 + sizeof(Uint8)] = strlen(px_str) + 1; /* copy position x length*/
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16)], px_str, strlen(px_str) + 1); /* copy position x*/
+
+          data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1)] = strlen(py_str) + 1; /* copy position y length*/
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + sizeof(Uint16)], py_str, strlen(py_str) + 1); /* copy position y*/
+
+          data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1)] = strlen(pa_str) + 1; /* copy angle length*/
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1) + sizeof(Uint16)], pa_str, strlen(pa_str) + 1); /* copy angle*/
+
+  memcpy(&data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1) + (sizeof(Uint16) + strlen(pa_str) + 1)], &map.player.health, sizeof(Uint8)); /* copy health */
+
+
+  //printf("px: %s py: %s a: %s\n", &data[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16)], &data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + sizeof(Uint16)], &data[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1) + sizeof(Uint16)]);
   /* set both and send if its changed only */
 
-  if(olddata[10] != data[10] || olddata[10 + sizeof(Uint8)] != data[10 + sizeof(Uint8)] || olddata[10 + sizeof(Uint8) + sizeof(float)] != data[10 + sizeof(Uint8)] + sizeof(float) || olddata[10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))] != data[10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))]) /* type, posx, posy, angle */
+  if(strcmp(px_str, oldx) != 0 || strcmp(py_str, oldy) != 0 || strcmp(pa_str, oldang) != 0 || map.player.type != oldtype) /* type, posx, posy, angle */
   {
-    memcpy(olddata, data, serialized_data);
     *len = serialized_data;
-    return data;
+    /* yep, I gave up on comparing floats... I'd had enough of it never working */
+    internal_asprintf(&oldx, "%f", map.player.x);
+    internal_asprintf(&oldy, "%f", map.player.y);
+    internal_asprintf(&oldang, "%f", map.cam_angle);
 
+
+    oldtype = map.player.type;
+    return data;
   }
   return NULL;
 }
@@ -99,14 +119,16 @@ int network(void *data)
   TCPsocket sock;
   Uint8 *cdata = NULL;
   Uint64 dlen = 0;
+  Uint64 events, i = 0;
 
+  size_t tlen;
+  Uint8 tdata[MAXSERVERPACKET];
 
   while(!map.quit)
   {
     if(connected == -1) /* connect to a server now */
     {
-      size_t tlen;
-      Uint8 tdata[MAXSERVERPACKET];
+
       printf("connecting to server %s\n", map.ip_str);
 
       if(SDLNet_ResolveHost(&ip, map.ip_str, 19191) == -1)
@@ -137,26 +159,11 @@ int network(void *data)
         map.display_connectbox = 0;
         connected = 1;
 
-        /* usually a good first thing to do */
-        if((cdata = internal_dataSerialize(&dlen)) != NULL)
-        {
-          printf("updating server with client data\n");
-          if(SDLNet_TCP_Send(sock, cdata, dlen) < dlen)
-          {
-            printf("data error. Client disconencted\n");
-            connected = 0;
-          }
-        }
-
       }
 
     }
     else if(connected == 1)
     {
-      /* listen to what the server has to say */
-
-
-
       /* do the things to send data out */
       if((cdata = internal_dataSerialize(&dlen)) != NULL)
       {
@@ -167,6 +174,56 @@ int network(void *data)
           connected = 0;
         }
       }
+
+      /* listen to what the server has to say */
+
+      /* check how many events there are to parse */
+      tlen = SDLNet_TCP_Recv(sock, tdata, MAXSERVERPACKET);
+      if(tlen == 0)
+      {
+        printf("connection error\n");
+        connected = 0;
+      }
+      events = (Uint64)tdata[1];
+      printf("events: %lu\n", (Uint64)tdata[1]);
+      if(tdata[0] == FLAG_GET_EVENTCOUNT)
+      {
+        i = 0;
+        while(i < events)
+        {
+          tlen = SDLNet_TCP_Recv(sock, tdata, MAXSERVERPACKET);
+          if(tlen == 0)
+          {
+            printf("connection error\n");
+            connected = 0;
+          }
+
+          /* TODO: make the server send all of the entities it has in the first round after a player connects */
+          switch((Uint8)tdata[0])
+          {
+            case FLAG_GET_ID_DETAILS:
+
+            if(map.entities[tdata[tlen - sizeof(Uint64)]].name != NULL)
+              free(map.entities[tdata[tlen - sizeof(Uint64)]].name);
+
+            map.entities[tdata[tlen - sizeof(Uint64)]].name = SDL_strdup(&cdata[sizeof(Uint8)]);
+            map.entities[tdata[tlen - sizeof(Uint64)]].type = cdata[sizeof(Uint8) + 10];
+            /* TODO make sure the end of each string is null terminated */
+            map.entities[tdata[tlen - sizeof(Uint64)]].x = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16)]);
+            map.entities[tdata[tlen - sizeof(Uint64)]].y = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] ) + sizeof(Uint16)]);
+            map.entities[tdata[tlen - sizeof(Uint64)]].angle = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] ) + sizeof(Uint16) + ((Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] )]) + sizeof(Uint16)]);
+            map.entities[tdata[tlen - sizeof(Uint64)]].health = cdata[dlen - sizeof(Uint8)];
+
+            break;
+            case FLAG_GET_ID_DELETE:
+
+            break;
+          }
+
+        }
+      }
+      else
+        printf("bad flag order\n");
     }
     SDL_Delay(25);
   }
@@ -197,6 +254,7 @@ int init()
   map.player.type = 0;
   map.display_connectbox = 0;
   map.text_entry_mode = 0;
+  map.entities = calloc(MAXENTITIES, sizeof(entity_t));
 
   raycaster_initbasics(&map);
 
@@ -216,15 +274,18 @@ int init()
 void logic()
 {
   static float i = 0.0f;
-  /* map.player.x += map.player.velx / 12; */
-  /* map.player.y += map.player.vely / 12; */
-  map.player.x -= (map.player.vely / 12) * cos(degrees_to_radians(map.cam_angle));
-  map.player.y -= (map.player.vely / 12) * sin(degrees_to_radians(map.cam_angle));
+  if(map.player.health != 0)
+  {
+    /* map.player.x += map.player.velx / 12; */
+    /* map.player.y += map.player.vely / 12; */
+    map.player.x -= (map.player.vely / 12) * cos(degrees_to_radians(map.cam_angle));
+    map.player.y -= (map.player.vely / 12) * sin(degrees_to_radians(map.cam_angle));
 
-  map.player.x += (map.player.velx / 12) * cos(degrees_to_radians(map.cam_angle + 90));
-  map.player.y += (map.player.velx / 12) * sin(degrees_to_radians(map.cam_angle + 90));
+    map.player.x += (map.player.velx / 12) * cos(degrees_to_radians(map.cam_angle + 90));
+    map.player.y += (map.player.velx / 12) * sin(degrees_to_radians(map.cam_angle + 90));
 
-  map.cam_angle += map.cam_velocity * 2; /* This is actually a terrible "fix" */
+    map.cam_angle += map.cam_velocity * 2; /* This is actually a terrible "fix" */
+  }
   if(map.can_debug)/* snapping makes things jumpy */
   {
     if(map.cam_angle < -180.0f)

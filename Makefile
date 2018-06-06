@@ -9,7 +9,7 @@ SSOURCES = server.c
 SOBJECTS = $(SSOURCES:.c=.o)
 SLIBS = -lSDL2 -lSDL2_net -lm
 
-COMPILE_FLAGS = -g -Ofast_math -Wall -o
+COMPILE_FLAGS = -ggdb3 -Ofast_math -Wall -o
 
 client: $(OBJECTS)
 	$(CC) $^ $(COMPILE_FLAGS) $(NAME) $(LIBS)

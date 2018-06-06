@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <float.h>
 
 #include <SDL2/SDL.h>
@@ -7,6 +8,7 @@
 
 #define MAXSERVERPACKET 2048
 #define MAXENTITIES 100
+#define MAXEVENTS 1000
 
 typedef struct
 {
@@ -22,6 +24,13 @@ typedef struct
   unsigned char type;
   SDL_Texture *texture;
 } entity_t;
+
+typedef struct
+{
+  Uint64 id;
+  Uint8 *data;
+  Uint64 dlen;
+} event_t;
 
 enum /* networking flags */
 {
@@ -41,8 +50,10 @@ TCPsocket server, *client;
 IPaddress ip, *clientip;
 unsigned int clIp;
 Uint64 idcount = 0;
+Uint64 eventidcount = 0;
 SDL_mutex *idmutx;
 entity_t entities[MAXENTITIES];
+event_t events[MAXEVENTS];
 
 /* TODO make a preallocated array of max projectiles and structs because im lazy */
 
@@ -63,8 +74,8 @@ void init()
 int threadPlayers(void *sock)
 {
   TCPsocket *socket = (TCPsocket *)sock;
-  char name[10];
   Uint64 id; /* set this */
+  Uint64 lasteventid = 0;
   unsigned char health, client_connected = 1;
 
   Uint8 cdata[MAXSERVERPACKET];
@@ -76,19 +87,21 @@ int threadPlayers(void *sock)
 
   do
   {
-    printf("trying to unlock mutex\n");
+    printf("trying to initially unlock mutex\n");
   }
   while(SDL_LockMutex(idmutx) != 0);
   /* ====================== */
 
   /* send the players id first*/
-  Uint64 serialized_data = sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float) + sizeof(Uint8), dlen = 0; /* messageheader name, type, position(x,y), angle, and health NOTE yeah, I know its not network byte order */
+  Uint64 serialized_data = 5, dlen = 0; /* yeah, I gave up checking validity */ //sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(Uint16) + strlen(px_str) + 1) + (sizeof(Uint16) + strlen(py_str) + 1) + (sizeof(Uint16) + strlen(pa_str) + 1) + sizeof(Uint8), dlen = 0; /* messageheader name, type, position(x,y), angle, and health NOTE yeah, I know its not network byte order */
   id = idcount;
   data = calloc(1, sizeof(Uint64) + 1);
 
   data[0] = FLAG_SERVER_RETURN_ID;
   data[1] = id;
 
+
+  /* TODO check and make sure theres not too many players before adding player and recycle old ids */
   SDLNet_TCP_Send(*socket, data, sizeof(Uint64) + 1);
 
 
@@ -105,36 +118,82 @@ int threadPlayers(void *sock)
       printf("client disconnect\n");
       break;
     }
+    printf("recieving\n");
     switch(cdata[0])
     {
       case FLAG_RETURN_DETAILS:/* the client sent data about its characteristics */
       /* check and fix all data the client sends */
-      if(dlen == serialized_data)
+      if(dlen > serialized_data)
       {
         cdata[sizeof(Uint8) + 9] = 0x00; /* just in case no null terminator is present */
-        if(name != NULL)
+        if(entities[id].name != NULL)
           free(entities[id].name);
 
         entities[id].name = SDL_strdup(&cdata[sizeof(Uint8)]);
         entities[id].type = cdata[sizeof(Uint8) + 10];
-        entities[id].x = cdata[sizeof(Uint8) + 10 + sizeof(Uint8)];
-        entities[id].y = cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(float)];
-        entities[id].angle = cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float))];
-        entities[id].health = cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + (sizeof(float) + sizeof(float)) + sizeof(float)];
+        /* TODO make sure the end of each string is null terminated */
+        entities[id].x = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16)]);
+        entities[id].y = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] ) + sizeof(Uint16)]);
+        entities[id].angle = atof(&cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] ) + sizeof(Uint16) + ((Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8) + sizeof(Uint16) + ( (Uint16)cdata[sizeof(Uint8) + 10 + sizeof(Uint8)] )]) + sizeof(Uint16)]);
+        entities[id].health = cdata[dlen - sizeof(Uint8)];
+
+        /* TODO check for colliding players? nah, i'll just check that clientside */
 
 
+        while(SDL_LockMutex(idmutx) != 0)
+        {
+          printf("trying to unlock mutex\n");
+        }
+        if(events[eventidcount % MAXEVENTS].data == NULL)
+          free(events[eventidcount % MAXEVENTS].data);
+        events[eventidcount % MAXEVENTS].data = calloc(1, dlen);
+        memcpy(&events[eventidcount % MAXEVENTS].data, cdata, dlen);
+        events[eventidcount % MAXEVENTS].data[0] = (Uint8)FLAG_GET_ID_DETAILS; /* change it to the other type */
+        /*
+        events[eventidcount % MAXEVENTS].dlen = dlen;
 
-        printf("client name %s of %d type moved to %f %f and is facing %f. they look pretty healthy at %d\n", entities[id].name, entities[id].type, entities[id].x, entities[id].y, entities[id].angle, entities[id].health);
+        events[eventidcount % MAXEVENTS].id = eventidcount;*/
+        eventidcount++;
+        printf("hii\n");
+        SDL_UnlockMutex(idmutx);
+
+
+        printf("client name %s of %d type moved to %f %f and is facing %f, they look pretty healthy at %d\n", entities[id].name, entities[id].type, entities[id].x, entities[id].y, entities[id].angle, entities[id].health);
       }
       else
         printf("data not correct\n");
 
       break;
+      /* =============================== */
       default:
         printf("illegal flag header\n");
     }
 
+    while(SDL_LockMutex(idmutx) != 0)
+    {
+      printf("trying to unlock mutex\n");
+    }
 
+    Uint8 *tempec = malloc(1 + sizeof(Uint32));
+    tempec[0] = FLAG_GET_EVENTCOUNT;
+    tempec[1] = eventidcount - lasteventid;
+
+    if(SDLNet_TCP_Send(*socket, tempec, 1 + sizeof(Uint32)) < 1 + sizeof(Uint32))
+      break;
+    printf("sending\n");
+
+    Uint64 i;
+    for(i = lasteventid; i < eventidcount; i++)
+    {
+      if(SDLNet_TCP_Send(*socket, events[i % MAXEVENTS].data, events[i % MAXEVENTS].dlen) < events[i % MAXEVENTS].dlen)
+        break;
+      printf("sending\n");
+    }
+
+    lasteventid = eventidcount;
+
+
+    SDL_UnlockMutex(idmutx);
 
     SDL_Delay(20);
   }
