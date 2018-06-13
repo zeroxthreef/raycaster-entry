@@ -7,6 +7,8 @@
 #define FOVRENDERDISTANCE 50
 #define PI 3.14159265f
 #define MAXSERVERPACKET 2048
+#define MAXENTITIES 100
+#define ENTITYWIDTH 0.1
 
 
 
@@ -30,6 +32,7 @@ typedef struct
   Uint64 id;
   unsigned char *name; /* for possible multiplayer */
   unsigned char type;
+  unsigned char enabled;
   SDL_Texture *texture;
 } entity_t;
 

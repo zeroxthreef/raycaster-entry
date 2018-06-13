@@ -15,8 +15,6 @@ TODO multiple levels
 #include <math.h>
 #include <float.h>
 
-#define MAXENTITIES 100
-
 
 int init();
 void logic();
@@ -44,7 +42,7 @@ int main(int argc, char **argv)
   return 0;
 }
 
-Uint8 *internal_dataSerialize(Uint64 **len)
+static Uint8 *internal_dataSerialize(Uint64 **len)
 {
   /* only actually do something if any data has changed or its the first time */
   static char *oldx = NULL, *oldy = NULL, *oldang = NULL;
@@ -113,6 +111,11 @@ Uint8 *internal_dataSerialize(Uint64 **len)
   return NULL;
 }
 
+static Uint8 *internal_dataDeserialize(Uint8 *data, Uint64 dlen)
+{
+
+}
+
 int network(void *data)
 {
   IPaddress ip;
@@ -168,6 +171,7 @@ int network(void *data)
       if((cdata = internal_dataSerialize(&dlen)) != NULL)
       {
         printf("updating server with client data\n");
+        printf("sending\n");
         if(SDLNet_TCP_Send(sock, cdata, dlen) < dlen)
         {
           printf("data error. Client disconencted\n");
@@ -178,6 +182,7 @@ int network(void *data)
       /* listen to what the server has to say */
 
       /* check how many events there are to parse */
+      printf("recieving\n");
       tlen = SDLNet_TCP_Recv(sock, tdata, MAXSERVERPACKET);
       if(tlen == 0)
       {
@@ -191,6 +196,7 @@ int network(void *data)
         i = 0;
         while(i < events)
         {
+          printf("recieving\n");
           tlen = SDLNet_TCP_Recv(sock, tdata, MAXSERVERPACKET);
           if(tlen == 0)
           {
@@ -232,7 +238,7 @@ int network(void *data)
 
 int init()
 {
-  printf("initializing\n");
+    printf("initializing\n");
   SDL_Init(SDL_INIT_EVERYTHING);
 
 
@@ -241,7 +247,7 @@ int init()
   map.cam_fov = 60;
   map.win_width = 800;
   map.win_height = 600;
-  map.max_distance = 100.0f;
+  map.max_distance = 80.0f;
   map.can_debug = 0;
   map.camera_height_offset = 0.0f;
   map.camera_ydiff_max = 4.0f;
@@ -255,6 +261,18 @@ int init()
   map.display_connectbox = 0;
   map.text_entry_mode = 0;
   map.entities = calloc(MAXENTITIES, sizeof(entity_t));
+
+  /* NOTE: debug stuff again. Remove it later */
+  size_t i;
+  for(i = 0; i < 2; i++)
+  {
+    map.entities[i].enabled = 1;
+    map.entities[i].type = rand()%4;
+    map.entities[i].x = rand()%10;
+    map.entities[i].y = rand()%10;
+    map.entities[i].angle = rand()%360;
+  }
+
 
   raycaster_initbasics(&map);
 
@@ -273,7 +291,9 @@ int init()
 
 void logic()
 {
+  SDL_Rect temprect;
   static float i = 0.0f;
+  size_t j;
   if(map.player.health != 0)
   {
     /* map.player.x += map.player.velx / 12; */
@@ -288,10 +308,10 @@ void logic()
   }
   if(map.can_debug)/* snapping makes things jumpy */
   {
-    if(map.cam_angle < -180.0f)
-      map.cam_angle = 180;
-    if(map.cam_angle > 180.0f)
-      map.cam_angle = -180;
+    if(map.cam_angle < -0.0f + map.cam_fov)
+      map.cam_angle = 360.0f + map.cam_fov;
+    if(map.cam_angle > 360.0f + map.cam_fov)
+      map.cam_angle = 0.0f + map.cam_fov;
   }
 
   if(map.player.velx != 0 || map.player.vely != 0) /* camera bob */
@@ -306,6 +326,62 @@ void logic()
   else if(!map.text_entry_mode && map.display_connectbox > 0)
     map.display_connectbox = 0;
 
+  /* just some debug stuff. TODO remove */
+
+  /*
+  map.entities[0].x = map.player.x + 2.1f;
+  map.entities[0].y = map.player.y;
+  map.entities[0].angle = map.cam_angle * 3.9f;
+  */
+  map.entities[0].x = 6;
+  map.entities[0].y = 6;
+  map.entities[0].angle += 0.2;
+
+  /* physics logic here */
+
+  for(j = 0; j < map.width * map.height; j++)
+  {
+
+    temprect.x = ((j % map.width) * MAPSCALE);
+    temprect.y = ((j / map.height) * MAPSCALE);
+    temprect.w = MAPSCALE;
+    temprect.h = MAPSCALE;
+
+  }
+
+  /* physics check for the entities outside of check for map tiles*/
+  for(j = 0; j < MAXENTITIES; j++)
+  {
+    if(map.entities[j].enabled)
+    {
+      switch(map.entities[j].type)
+      {
+        case ENTITY_PLAYER_0:
+
+        break;
+        case ENTITY_PLAYER_1:
+
+        break;
+        case ENTITY_PLAYER_2:
+
+        break;
+        case ENTITY_MONSTER0:
+
+        break;
+        default:
+        printf("weird entity\n");
+      }
+      temprect.x = map.entities[j].x  * MAPSCALE - 3;
+      temprect.y = map.entities[j].y * MAPSCALE - 3;
+      temprect.w = 7;
+      temprect.h = 7;
+
+    }
+  }
+
+
+
+  /* ================================== */
 
 }
 

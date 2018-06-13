@@ -27,6 +27,15 @@ typedef struct
 
 typedef struct
 {
+  entity_t entity;
+  TCPsocket *socket;
+  Uint64 id;
+  Uint64 lastev;
+  unsigned char player_connected;
+} player_t;
+
+typedef struct
+{
   Uint64 id;
   Uint8 *data;
   Uint64 dlen;
@@ -52,7 +61,7 @@ unsigned int clIp;
 Uint64 idcount = 0;
 Uint64 eventidcount = 0;
 SDL_mutex *idmutx;
-entity_t entities[MAXENTITIES];
+player_t players[MAXENTITIES];
 event_t events[MAXEVENTS];
 
 /* TODO make a preallocated array of max projectiles and structs because im lazy */
@@ -71,12 +80,49 @@ void init()
   idmutx = SDL_CreateMutex();
 }
 
-int threadPlayers(void *sock)
+int threadPlayersSend(void *id)
 {
-  TCPsocket *socket = (TCPsocket *)sock;
-  Uint64 id; /* set this */
-  Uint64 lasteventid = 0;
-  unsigned char health, client_connected = 1;
+  Uint64 lasteventid = eventidcount;
+  Uint64 id = *id;
+
+
+  /*wait for the recv thread to do the initial work. Too lazy to make them both share the init sequence */
+  while(mhm)
+  {
+    while(SDL_LockMutex(idmutx) != 0)
+    {
+      printf("trying to unlock mutex\n");
+    }
+
+    Uint8 *tempec = malloc(1 + sizeof(Uint32));
+    tempec[0] = FLAG_GET_EVENTCOUNT;
+    tempec[1] = eventidcount - lasteventid;
+
+    printf("sending\n");
+    if(SDLNet_TCP_Send(*socket, tempec, 1 + sizeof(Uint32)) < 1 + sizeof(Uint32))
+      break;
+
+    Uint64 i;
+    for(i = lasteventid; i < eventidcount; i++)
+    {
+      printf("sending %s\n", &events[i % MAXEVENTS].data[1]);
+      if(SDLNet_TCP_Send(*socket, events[i % MAXEVENTS].data, events[i % MAXEVENTS].dlen) < events[i % MAXEVENTS].dlen)
+        break;
+    }
+
+    lasteventid = eventidcount;
+
+
+    SDL_UnlockMutex(idmutx);
+  }
+
+  SDL_Delay(20);
+}
+
+int threadPlayersRecv(void *id)
+{
+  Uint64 id = *id; /* set this */
+
 
   Uint8 cdata[MAXSERVERPACKET];
   Uint64 cdatalen = 0;
@@ -102,10 +148,20 @@ int threadPlayers(void *sock)
 
 
   /* TODO check and make sure theres not too many players before adding player and recycle old ids */
+  printf("sending\n");
   SDLNet_TCP_Send(*socket, data, sizeof(Uint64) + 1);
 
 
   idcount++;
+
+
+  /* start the send thread because the client connected */
+
+  if(SDL_CreateThread(threadPlayersSend, "player_send", &id) == NULL)
+  {
+    printf"thread error\n");
+    return 1;
+  }
   /* ====================== */
   SDL_UnlockMutex(idmutx);
 
@@ -113,12 +169,13 @@ int threadPlayers(void *sock)
 
   while(client_connected)
   {
+    printf("recieving\n");
     if((dlen = SDLNet_TCP_Recv(*socket, cdata, MAXSERVERPACKET)) <= 0)
     {
       printf("client disconnect\n");
       break;
     }
-    printf("recieving\n");
+
     switch(cdata[0])
     {
       case FLAG_RETURN_DETAILS:/* the client sent data about its characteristics */
@@ -144,17 +201,15 @@ int threadPlayers(void *sock)
         {
           printf("trying to unlock mutex\n");
         }
+        printf("adding event %lu\n", eventidcount % MAXEVENTS);
         if(events[eventidcount % MAXEVENTS].data == NULL)
           free(events[eventidcount % MAXEVENTS].data);
         events[eventidcount % MAXEVENTS].data = calloc(1, dlen);
-        memcpy(&events[eventidcount % MAXEVENTS].data, cdata, dlen);
+        memcpy(events[eventidcount % MAXEVENTS].data, cdata, dlen);
         events[eventidcount % MAXEVENTS].data[0] = (Uint8)FLAG_GET_ID_DETAILS; /* change it to the other type */
-        /*
         events[eventidcount % MAXEVENTS].dlen = dlen;
-
-        events[eventidcount % MAXEVENTS].id = eventidcount;*/
+        events[eventidcount % MAXEVENTS].id = eventidcount;
         eventidcount++;
-        printf("hii\n");
         SDL_UnlockMutex(idmutx);
 
 
@@ -169,31 +224,7 @@ int threadPlayers(void *sock)
         printf("illegal flag header\n");
     }
 
-    while(SDL_LockMutex(idmutx) != 0)
-    {
-      printf("trying to unlock mutex\n");
-    }
 
-    Uint8 *tempec = malloc(1 + sizeof(Uint32));
-    tempec[0] = FLAG_GET_EVENTCOUNT;
-    tempec[1] = eventidcount - lasteventid;
-
-    if(SDLNet_TCP_Send(*socket, tempec, 1 + sizeof(Uint32)) < 1 + sizeof(Uint32))
-      break;
-    printf("sending\n");
-
-    Uint64 i;
-    for(i = lasteventid; i < eventidcount; i++)
-    {
-      if(SDLNet_TCP_Send(*socket, events[i % MAXEVENTS].data, events[i % MAXEVENTS].dlen) < events[i % MAXEVENTS].dlen)
-        break;
-      printf("sending\n");
-    }
-
-    lasteventid = eventidcount;
-
-
-    SDL_UnlockMutex(idmutx);
 
     SDL_Delay(20);
   }
@@ -226,7 +257,10 @@ int main(int argc, char **argv)
 
       if(*client != NULL)
       {
-        temp = SDL_CreateThread(threadPlayers, "thready", client);
+        players[idcount].id = idcount;
+        players[idcount].socket = client;
+        temp = SDL_CreateThread(threadPlayersRecv, "player_recv", &players[idcount].id);
+        idcount++;
 
         if(temp == NULL)
           printf("threading error\n");

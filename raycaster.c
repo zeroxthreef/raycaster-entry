@@ -4,8 +4,8 @@
 #include "hud0.h"
 #include "hud1.h"
 #include "hud2.h"
-#include "ball.h"
 #include "died.h"
+#include "space.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -19,6 +19,7 @@ SDL_Window *debugwin = NULL;
 SDL_Renderer *mainrenderer = NULL;
 SDL_Renderer *debugrenderer = NULL;
 SDL_Rect temprect; /* general purpose rect */
+SDL_Texture *background = NULL;
 
 typedef struct
 {
@@ -68,7 +69,7 @@ short internal_asprintf(char **string, const char *fmt, ...) /* took this from m
   va_end(list);
 }
 
-static void internal_colorCalc(map_settings_t *map, float distance, unsigned char face, unsigned char type, unsigned char *r, unsigned char *g, unsigned char *b)
+static void internal_colorCalc(map_settings_t *map, float distance, unsigned char face, unsigned char type, unsigned char isplayer, unsigned char *r, unsigned char *g, unsigned char *b)
 {
   float ambient_light = 0.5;
   float north_south_percent = -0.1;
@@ -78,70 +79,176 @@ static void internal_colorCalc(map_settings_t *map, float distance, unsigned cha
 
 
   /* configure all types and their colors here. This gives appearance */
-  switch(type)
+  if(!isplayer)
   {
-    case TILE_STONEWALL:
-      *r = 64;
-      *g = 64;
-      *b = 64;
-    break;
-    case TILE_DIRTWALL:
-      *r = 153;
-      *g = 77;
-      *b = 0;
-    break;
-    case TILE_WOODWALL:
-      *r = 255;
-      *g = 140;
-      *b = 26;
-    break;
-    case TILE_GLASSWALL: /* was going to add transparency, but realized I'd have to do a second test for rays and I dont want to spend any more time on this really */
-      *r = 102;
-      *g = 255;
-      *b = 179;
-    break;
-    case TILE_DOOR:
-      *r = 153;
-      *g = 102;
-      *b = 0;
-    break;
+    switch(type)
+    {
+      case TILE_STONEWALL:
+        *r = 64;
+        *g = 64;
+        *b = 64;
+      break;
+      case TILE_DIRTWALL:
+        *r = 153;
+        *g = 77;
+        *b = 0;
+      break;
+      case TILE_WOODWALL:
+        *r = 255;
+        *g = 140;
+        *b = 26;
+      break;
+      case TILE_GLASSWALL: /* was going to add transparency, but realized I'd have to do a second test for rays and I dont want to spend any more time on this really */
+        *r = 102;
+        *g = 255;
+        *b = 179;
+      break;
+      case TILE_DOOR:
+        *r = 153;
+        *g = 102;
+        *b = 0;
+      break;
+    }
+  }
+  else
+  {
+    switch(type)
+    {
+      case ENTITY_PLAYER_0:
+        if(face == 0)
+        {
+          *r = 120;
+          *g = 120;
+          *b = 120;
+        }
+        else
+        {
+          *r = 64;
+          *g = 64;
+          *b = 64;
+        }
+      break;
+      case ENTITY_PLAYER_1:
+        if(face == 0)
+        {
+          *r = 255;
+          *g = 120;
+          *b = 150;
+        }
+        else
+        {
+          *r = 255;
+          *g = 165;
+          *b = 0;
+        }
+      break;
+      case ENTITY_PLAYER_2:
+        if(face == 0)
+        {
+          *r = 255;
+          *g = 150;
+          *b = 140;
+        }
+        else
+        {
+          *r = 68;
+          *g = 200;
+          *b = 68;
+        }
+      break;
+      case ENTITY_MONSTER0:
+        if(face == 0)
+        {
+          *r = 255;
+          *g = 100;
+          *b = 100;
+        }
+        else
+        {
+          *r = 250;
+          *g = 12;
+          *b = 20;
+        }
+      break;
+    }
   }
 
   /* settings for lighting. Should probably make this dynamic but whatever. Dont really need day night cycles in a silly test */
-  switch(face)
+  if(!isplayer)
   {
-    case 2: /* north */
-      if(north_south_percent > 0.0f)
-      {
-        *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
-        *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
-        *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
-      }
-    break;
-    case 0: /* south */
-      if(north_south_percent < 0.0f)
-      {
-        *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
-        *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
-        *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
-      }
-    break;
-    case 1: /* east */
-      if(east_west_percent > 0.0f)
-      {
-        *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
-        *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
-        *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
-      }
-    break;
-    case 3: /* west */
-      if(east_west_percent < 0.0f)
-      {
-        *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
-        *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
-        *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
-      }
-    break;
+    switch(face)
+    {
+      case 2: /* north */
+        if(north_south_percent > 0.0f)
+        {
+          *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
+        }
+      break;
+      case 0: /* south */
+        if(north_south_percent < 0.0f)
+        {
+          *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
+        }
+      break;
+      case 1: /* east */
+        if(east_west_percent > 0.0f)
+        {
+          *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
+        }
+      break;
+      case 3: /* west */
+        if(east_west_percent < 0.0f)
+        {
+          *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
+        }
+      break;
+    }
+  }
+  else
+  {
+    switch(face)
+    {
+      case 2: /* north */
+        if(north_south_percent > 0.0f)
+        {
+          *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
+        }
+      break;
+      case 0: /* south */
+        if(north_south_percent < 0.0f)
+        {
+          *r *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *g *= (unsigned int)fabs(north_south_percent) + ambient_light;
+          *b *= (unsigned int)fabs(north_south_percent) + ambient_light;
+        }
+      break;
+      case 1: /* east */
+        if(east_west_percent > 0.0f)
+        {
+          *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
+        }
+      break;
+      case 3: /* west */
+        if(east_west_percent < 0.0f)
+        {
+          *r *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *g *= (unsigned int)fabs(east_west_percent) + ambient_light;
+          *b *= (unsigned int)fabs(east_west_percent) + ambient_light;
+        }
+      break;
+    }
   }
 
   /* do distance falloff... Maybe logarithmic? No, thats was a stupid waste of time */
@@ -186,7 +293,7 @@ static int internal_testRayIntersection(float *intersectx, float *intersecty, fl
   return 1;
 }
 
-static void internal_drawDebug(map_settings_t *map)
+static void internal_drawDebug(map_settings_t *map, unsigned char when)
 {
   SDL_version version;
   static unsigned int start = 0;
@@ -199,28 +306,36 @@ static void internal_drawDebug(map_settings_t *map)
 
   internal_asprintf(&fps_string, "fps: %d", 1000/(SDL_GetTicks() - start));
   stringRGBA(mainrenderer, 0, 0, fps_string, 255, 255, 255, 255); /* TODO do it right */
-  internal_asprintf(&playerx_string, "player x: %f", map->player.x);
-  stringRGBA(mainrenderer, 0, 8, playerx_string, 255, 255, 255, 255);
-  internal_asprintf(&playery_string, "player y: %f", map->player.y);
-  stringRGBA(mainrenderer, 0, 16, playery_string, 255, 255, 255, 255);
-  internal_asprintf(&playerangle_string, "player angle: %f", map->cam_angle);
-  stringRGBA(mainrenderer, 0, 24, playerangle_string, 255, 255, 255, 255);
-  SDL_VERSION(&version);
-  internal_asprintf(&compile_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
-  stringRGBA(mainrenderer, 0, 32, compile_string, 255, 255, 255, 255);
-  SDL_GetVersion(&version);
-  internal_asprintf(&link_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
-  stringRGBA(mainrenderer, 0, 40, link_string, 255, 255, 255, 255);
+  if(when)
+  {
+    internal_asprintf(&playerx_string, "player x: %f", map->player.x);
+    stringRGBA(mainrenderer, 0, 8, playerx_string, 255, 255, 255, 255);
+    internal_asprintf(&playery_string, "player y: %f", map->player.y);
+    stringRGBA(mainrenderer, 0, 16, playery_string, 255, 255, 255, 255);
+    internal_asprintf(&playerangle_string, "player angle: %f", map->cam_angle);
+    stringRGBA(mainrenderer, 0, 24, playerangle_string, 255, 255, 255, 255);
+    SDL_VERSION(&version);
+    internal_asprintf(&compile_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
+    stringRGBA(mainrenderer, 0, 32, compile_string, 255, 255, 255, 255);
+    SDL_GetVersion(&version);
+    internal_asprintf(&link_string, "compiled %d.%d.%d", version.major, version.minor, version.patch);
+    stringRGBA(mainrenderer, 0, 40, link_string, 255, 255, 255, 255);
+  }
+
 
   /*diff = SDL_GetTicks() - start; */
 
   /* free everything */
   free(fps_string);
-  free(playerx_string);
-  free(playery_string);
-  free(playerangle_string);
-  free(compile_string);
-  free(link_string);
+  if(when)
+  {
+    free(playerx_string);
+    free(playery_string);
+    free(playerangle_string);
+    free(compile_string);
+    free(link_string);
+  }
+
 
   start = SDL_GetTicks();
 }
@@ -384,7 +499,7 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
   /* for the main window */
   /* ================================== */
   /* draw the ceiling and the floor. This is very wip. Need to set ceiling and floor color from map file */
-  size_t i, ii, j;
+  size_t i, ii, j, k;
   float angle;
   float distance;
   float fov0;
@@ -395,11 +510,12 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
   float lastx, lasty, firstx, firsty;
   float interx, intery;
   unsigned char face; /*1 of 4 */
-  unsigned char last_type;
+  unsigned char last_type, isplayer;
   unsigned char r, g, b;
   unsigned char canrender;
 
   /* TODO: only render the lines of the screen for the current rays. Remember to predict the placement */
+  /* render old sky
   temprect.x = 0;
   temprect.y = 0;
   temprect.w = map->win_width;
@@ -412,6 +528,51 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
   temprect.h = map->win_height/2;
   SDL_SetRenderDrawColor(mainrenderer, 0, 102, 0, 255);
   SDL_RenderFillRect(mainrenderer, &temprect);
+  */
+  for(i = 0; i < 3; i++)
+  {
+    if(!i)
+    temprect.x = -((int)map->cam_angle*(int)map->win_width/(int)360) % 800 - 800;
+    else if(i == 1)
+    temprect.x = -((int)map->cam_angle*(int)map->win_width/(int)360) % 800;
+    else if(i == 2)
+    temprect.x = -((int)map->cam_angle*(int)map->win_width/(int)360) % 800 + 800;
+
+    temprect.y = 0;
+    temprect.w = 800;
+    temprect.h = 600;
+
+    SDL_RenderCopy(mainrenderer, background, NULL, &temprect);
+  }
+  /*
+  int gap = abs(100 - map->max_distance) * map->win_height/1000;
+  if(gap < 0)
+   gap = 0;
+  else if(gap > 255)
+    gap = 255;
+
+  for(i = 0; i < map->win_height; i++)
+  {
+
+    if(i <= map->win_height/2 - gap)
+    {
+      SDL_SetRenderDrawColor(mainrenderer, -(i * 255)/map->win_height/2- gap, -(i * 255)/map->win_height/2- gap, -(i * 255)/map->win_height/2- gap, 255);
+      SDL_RenderDrawLine(mainrenderer, 0, i, map->win_width, i);
+    }
+    else if(i >= map->win_height/2 + gap)
+    {
+      SDL_SetRenderDrawColor(mainrenderer, (i * 255)/map->win_height/2- gap, (i * 255)/map->win_height/2- gap, (i * 255)/map->win_height/2- gap, 255);
+      SDL_RenderDrawLine(mainrenderer, 0, i, map->win_width, i);
+    }
+
+  }
+  */
+  for(i = 0; i < map->win_height/2; i++)
+  {
+    SDL_SetRenderDrawColor(mainrenderer, (i * 255)/map->win_height/2, (i * 255)/map->win_height/2, (i * 255)/map->win_height/2, 255);
+    SDL_RenderDrawLine(mainrenderer, 0, i + map->win_width / 2 - 90, map->win_width, i + map->win_width / 2 - 90);
+
+  }
 
 
   for(j = 0; j < map->win_width; j++)
@@ -433,7 +594,13 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
 
       for(i = 0; i < map->width * map->height; i++)
       {
-
+        /*
+        angle = atan2f(map->tiles[i].posy - map->player.y, map->tiles[i].posx - map->player.x) + degrees_to_radians(float deg);
+        fov0 = map->cam_angle - map->cam_fov/2 + map->cam_fov;
+        fov1 = map->cam_angle + map->cam_fov/2 + map->cam_fov;
+        printf("f %f %f %f\n", degrees_to_radians(fov0), angle, degrees_to_radians(fov1));
+        if(degrees_to_radians(fov0) <= angle && degrees_to_radians(fov1) >= angle)
+        */
         if(map->tiles[i].type != TILE_AIR && map->tiles[i].type != TILE_PLAYERSTART) /* filter out things that shouldnt interferre with the raycast */
         {
           pointx[0] = map->tiles[i].posx;/* top left */
@@ -465,6 +632,7 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
                   closesty = intery;
                   face = (unsigned char)ii;
                   last_type = map->tiles[i].type;
+                  isplayer = 0;
 
                 }
               }
@@ -490,13 +658,83 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
                   closesty = intery;
                   face = (unsigned char)ii;
                   last_type = map->tiles[i].type;
+                  isplayer = 0;
+                }
+              }
+            }
+          }
+        }
 
+
+
+      }
+      /* now test for entities */
+      for(k = 0; k < MAXENTITIES; k++)
+      {
+        if(map->entities[k].enabled)
+        {
+          pointx[0] = map->entities[k].x + (ENTITYWIDTH * cos(degrees_to_radians(map->entities[k].angle + 45)));/* top left */
+          pointy[0] = map->entities[k].y + (ENTITYWIDTH * sin(degrees_to_radians(map->entities[k].angle + 45)));
+          pointx[1] = map->entities[k].x + (ENTITYWIDTH * cos(degrees_to_radians(map->entities[k].angle + 45 + 90)));/* top right */
+          pointy[1] = map->entities[k].y + (ENTITYWIDTH * sin(degrees_to_radians(map->entities[k].angle + 45 + 90)));
+          pointx[2] = map->entities[k].x + (ENTITYWIDTH * cos(degrees_to_radians(map->entities[k].angle + 45 + 180)));/* bottom right */
+          pointy[2] = map->entities[k].y + (ENTITYWIDTH * sin(degrees_to_radians(map->entities[k].angle + 45 + 180)));
+          pointx[3] = map->entities[k].x + (ENTITYWIDTH * cos(degrees_to_radians(map->entities[k].angle + 45 + 270)));/* bottom left */
+          pointy[3] = map->entities[k].y + (ENTITYWIDTH * sin(degrees_to_radians(map->entities[k].angle + 45 + 270)));
+
+          for(ii = 0; ii < 4; ii++)/* generate the vertecies and faces */
+          {
+            angle = (map->cam_angle - map->cam_fov/2) + ((map->cam_fov * j) / map->win_width);
+            distance = sqrt((pointx[ii] - map->player.x) * (pointx[ii] - map->player.x) + (pointy[ii] - map->player.y) * (pointy[ii] - map->player.y));
+            fov0 = map->cam_angle - map->cam_fov/2;
+            fov1 = map->cam_angle + map->cam_fov/2;
+
+
+            if(ii != 0) /* skip over 0 because I use last and current NOTE: remember to set a lowest distance variable and only change it if the distance gets closer. might wanna set the vertex too*/
+            {
+              if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[ii], pointy[ii], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
+              {
+                distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
+                if(distance < closestdistance)
+                {
+                  closestdistance = distance;
+                  closestx = interx;
+                  closesty = intery;
+                  face = (unsigned char)ii;
+                  last_type = map->entities[k].type;
+                  isplayer = 1;
+                }
+              }
+
+
+              lastx = pointx[ii];
+              lasty = pointy[ii];
+            }
+            else
+            {
+              lastx = pointx[0];
+              lasty = pointy[0];
+              firstx = lastx;
+              firsty = lasty;
+
+            if(internal_testRayIntersection(&interx, &intery, lastx, lasty, pointx[3], pointy[3], map->player.x, map->player.y, map->max_distance * cos(degrees_to_radians(angle)),  map->max_distance * sin(degrees_to_radians(angle))))
+              {
+                distance = sqrt((interx - map->player.x) * (interx - map->player.x) + (intery - map->player.y) * (intery - map->player.y));
+                if(distance < closestdistance)
+                {
+                  closestdistance = distance;
+                  closestx = interx;
+                  closesty = intery;
+                  face = (unsigned char)ii;
+                  last_type = map->entities[k].type;
+                  isplayer = 1;
                 }
               }
             }
           }
         }
       }
+
       //float linex = (((radians_to_degrees(angle) - map->cam_angle) * map->win_width) / map->cam_fov) + map->win_width/2;
       if(closestdistance != map->max_distance)
       {
@@ -505,7 +743,7 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
         /*liney0 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance); */
         /*liney1 += map->camera_height_offset * (((map->max_distance - closestdistance)) / map->max_distance);*/
 
-        internal_colorCalc(map, closestdistance, face, last_type, &r, &g, &b);
+        internal_colorCalc(map, closestdistance, face, last_type, isplayer, &r, &g, &b);
         lineRGBA(mainrenderer, j, liney0, j, liney1, r, g, b, 255);
       }
     }
@@ -602,8 +840,11 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
 
 
     internal_drawGUI(map);
+
     if(map->can_debug)
-      internal_drawDebug(map);
+      internal_drawDebug(map, 1);
+    else
+      internal_drawDebug(map, 0);
     if(map->display_connectbox)
       internal_RenderConnectbox(map);
     /* ================================== */
@@ -655,7 +896,40 @@ void render(map_settings_t *map, unsigned char threadnum) /* not the actual thre
         SDL_RenderDrawRect(debugrenderer, &temprect);
       }
 
-      /* draw the player, fov, and direction */
+      /* draw the entities, player, fov, and direction */
+      for(i = 0; i < MAXENTITIES; i++)
+      {
+        if(map->entities[i].enabled)
+        {
+          switch(map->entities[i].type)
+          {
+            case ENTITY_PLAYER_0:
+              SDL_SetRenderDrawColor(debugrenderer, 100, 100, 100, 255);
+            break;
+            case ENTITY_PLAYER_1:
+              SDL_SetRenderDrawColor(debugrenderer, 12, 12, 12, 255);
+            break;
+            case ENTITY_PLAYER_2:
+              SDL_SetRenderDrawColor(debugrenderer, 80, 255, 80, 255);
+            break;
+            default:
+              SDL_SetRenderDrawColor(debugrenderer, 23, 6, 160, 255);
+          }
+          temprect.x = map->entities[i].x  * MAPSCALE - 3;
+          temprect.y = map->entities[i].y * MAPSCALE - 3;
+          temprect.w = 7;
+          temprect.h = 7;
+          SDL_RenderFillRect(debugrenderer, &temprect);
+
+          SDL_SetRenderDrawColor(debugrenderer, 255, 70, 10, 255);
+          SDL_RenderDrawLine(debugrenderer, map->entities[i].x * MAPSCALE , map->entities[i].y * MAPSCALE , (cos(degrees_to_radians(map->entities[i].angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->entities[i].x * MAPSCALE, (sin(degrees_to_radians(map->entities[i].angle + 0.0f + map->cam_fov/2)) * FOVRENDERDISTANCE) + map->entities[i].y * MAPSCALE);
+          SDL_RenderDrawLine(debugrenderer, map->entities[i].x * MAPSCALE , map->entities[i].y * MAPSCALE , (cos(degrees_to_radians(map->entities[i].angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->entities[i].x * MAPSCALE, (sin(degrees_to_radians(map->entities[i].angle + 0.0f - map->cam_fov/2)) * FOVRENDERDISTANCE) + map->entities[i].y * MAPSCALE);
+
+          SDL_SetRenderDrawColor(debugrenderer, 255, 7, 1, 255);
+          SDL_RenderDrawLine(debugrenderer, map->entities[i].x * MAPSCALE , map->entities[i].y * MAPSCALE , (cos(degrees_to_radians(map->entities[i].angle)) * FOVRENDERDISTANCE * 1.3) + map->entities[i].x * MAPSCALE, (sin(degrees_to_radians(map->entities[i].angle)) * FOVRENDERDISTANCE * 1.3) + map->entities[i].y * MAPSCALE);
+
+        }
+      }
       SDL_SetRenderDrawColor(debugrenderer, 220, 255, 160, 255);
       temprect.x = map->player.x  * MAPSCALE - 3;
       temprect.y = map->player.y * MAPSCALE - 3;
@@ -745,7 +1019,7 @@ int raycaster_initbasics(map_settings_t *map)
 
   mainrenderer = SDL_CreateRenderer(mainwin, -1, SDL_RENDERER_ACCELERATED);
   debugrenderer = SDL_CreateRenderer(debugwin, -1, SDL_RENDERER_ACCELERATED);
-
+  internal_createTexHeader(mainrenderer, &background, space_bmp, space_bmp_len);
   return 0;
 }
 
