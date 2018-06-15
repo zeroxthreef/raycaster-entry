@@ -1,13 +1,12 @@
 #ifndef RAYCASTER_H__
 #define RAYCASTER_H__
 #include <SDL2/SDL.h>
-#include <SDL2/SDL2_framerate.h>
 
-#define MAPSCALE 16
+#define MAPSCALE 16 /* changing this will affect debug view size and collision accurace */
 #define FOVRENDERDISTANCE 50
 #define PI 3.14159265f
 #define MAXSERVERPACKET 2048
-#define MAXENTITIES 100
+#define MAXENTITIES 10000
 #define ENTITYWIDTH 0.1
 
 

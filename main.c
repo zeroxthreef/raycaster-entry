@@ -6,6 +6,10 @@ TODO multiple levels
 
 #include "raycaster.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_net.h>
 
@@ -25,12 +29,16 @@ int clean_map(map_settings_t *map);
 
 SDL_Event event;
 map_settings_t map;
+int monsters = 3;
 
 short connected = 0;
 
 
-
+#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
+#else
 int main(int argc, char **argv)
+#endif
 {
   if(init())
     destroy();
@@ -238,7 +246,7 @@ int network(void *data)
 
 int init()
 {
-    printf("initializing\n");
+  printf("initializing\n");
   SDL_Init(SDL_INIT_EVERYTHING);
 
 
@@ -264,7 +272,7 @@ int init()
 
   /* NOTE: debug stuff again. Remove it later */
   size_t i;
-  for(i = 0; i < 2; i++)
+  for(i = 0; i < monsters; i++)
   {
     map.entities[i].enabled = 1;
     map.entities[i].type = rand()%4;
@@ -291,18 +299,18 @@ int init()
 
 void logic()
 {
-  SDL_Rect temprect;
+  SDL_Rect temprect, temprect1, temprect2, temprect3, diffrect;
   static float i = 0.0f;
-  size_t j;
+  size_t j, k, l;
   if(map.player.health != 0)
   {
     /* map.player.x += map.player.velx / 12; */
     /* map.player.y += map.player.vely / 12; */
-    map.player.x -= (map.player.vely / 12) * cos(degrees_to_radians(map.cam_angle));
-    map.player.y -= (map.player.vely / 12) * sin(degrees_to_radians(map.cam_angle));
+    map.player.x -= (map.player.vely / 19) * cos(degrees_to_radians(map.cam_angle));
+    map.player.y -= (map.player.vely / 19) * sin(degrees_to_radians(map.cam_angle));
 
-    map.player.x += (map.player.velx / 12) * cos(degrees_to_radians(map.cam_angle + 90));
-    map.player.y += (map.player.velx / 12) * sin(degrees_to_radians(map.cam_angle + 90));
+    map.player.x += (map.player.velx / 19) * cos(degrees_to_radians(map.cam_angle + 90));
+    map.player.y += (map.player.velx / 19) * sin(degrees_to_radians(map.cam_angle + 90));
 
     map.cam_angle += map.cam_velocity * 2; /* This is actually a terrible "fix" */
   }
@@ -333,56 +341,239 @@ void logic()
   map.entities[0].y = map.player.y;
   map.entities[0].angle = map.cam_angle * 3.9f;
   */
-  map.entities[0].x = 6;
-  map.entities[0].y = 6;
-  map.entities[0].angle += 0.2;
+  for(j = 0; j < monsters; j++)
+  {
+    map.entities[j].x -= (sin(i/70) / 12) * cos(degrees_to_radians(map.entities[j].angle));
+    map.entities[j].y -= (sin(i/70) / 12) * sin(degrees_to_radians(map.entities[j].angle));
+
+    map.entities[j].x += (0) * cos(degrees_to_radians(map.entities[j].angle + 90));
+    map.entities[j].y += (0) * sin(degrees_to_radians(map.entities[j].angle + 90));
+    map.entities[j].angle += 3 + sin(i * 20) * 4;
+  }
+
+
 
   /* physics logic here */
 
   for(j = 0; j < map.width * map.height; j++)
   {
+    if(map.tiles[j].type != TILE_AIR && map.tiles[j].type != TILE_PLAYERSTART)
+    {
+      /* map tile*/
+      temprect.x = ((j % map.width) * MAPSCALE);
+      temprect.y = ((j / map.height) * MAPSCALE);
+      temprect.w = MAPSCALE;
+      temprect.h = MAPSCALE;
 
-    temprect.x = ((j % map.width) * MAPSCALE);
-    temprect.y = ((j / map.height) * MAPSCALE);
-    temprect.w = MAPSCALE;
-    temprect.h = MAPSCALE;
+      /* player */
+      temprect1.x = map.player.x  * MAPSCALE - 3;
+      temprect1.y = map.player.y * MAPSCALE - 3;
+      temprect1.w = 7;
+      temprect1.h = 7;
 
+
+      //printf("%daa %d %d, %d %d, %d %d : %d\n", j, temprect.x, temprect.y, temprect1.x, temprect1.y, map.width, map.height, map.tiles[j].type);
+      /* first check if the player collides with any since there may be no entities */
+
+
+      for(k = 0; k < MAXENTITIES; k++)
+      {
+        if(map.entities[k].enabled)
+        {
+
+          temprect2.x = map.entities[k].x  * MAPSCALE - 3;
+          temprect2.y = map.entities[k].y * MAPSCALE - 3;
+          temprect2.w = 7;
+          temprect2.h = 7;
+
+          if(SDL_IntersectRect(&temprect2, &temprect1, &diffrect)) /* test for player and entity on entity collision */
+          {
+            printf("ouch\n");
+            map.player.health -= 1;
+
+            if(diffrect.h > diffrect.w)
+            {
+              if(temprect1.x > temprect.x)
+              {
+                //map.entities[k].x += (float)((float)diffrect.w / (float)MAPSCALE);
+                map.player.x += (float)((float)diffrect.w / (float)MAPSCALE);
+              }
+              else
+              {
+                //map.entities[k].x -= (float)((float)diffrect.w / (float)MAPSCALE);
+                map.player.x -= (float)((float)diffrect.w / (float)MAPSCALE);
+              }
+            }
+            else
+            {
+              if(temprect1.y > temprect.y)
+              {
+                //map.entities[k].y += (float)((float)diffrect.h / (float)MAPSCALE);
+                map.player.y += (float)((float)diffrect.h / (float)MAPSCALE);
+              }
+              else
+              {
+                //map.entities[k].y -= (float)((float)diffrect.h / (float)MAPSCALE);
+                map.player.y -= (float)((float)diffrect.h / (float)MAPSCALE);
+              }
+            }
+          }
+
+
+          if(SDL_IntersectRect(&temprect2, &temprect, &diffrect))
+          {
+            /*printf("diffrect: x%f y%f w%f h%f\n", (float)diffrect.x/MAPSCALE, (float)diffrect.y/MAPSCALE, (float)diffrect.w/MAPSCALE, (float)diffrect.h/MAPSCALE);*/
+
+            if(diffrect.h > diffrect.w)
+            {
+              if(temprect1.x > temprect.x)
+              {
+                map.entities[k].x += (float)((float)diffrect.w / (float)MAPSCALE);
+              }
+              else
+              {
+                map.entities[k].x -= (float)((float)diffrect.w / (float)MAPSCALE);
+              }
+            }
+            else
+            {
+              if(temprect1.y > temprect.y)
+              {
+                map.entities[k].y += (float)((float)diffrect.h / (float)MAPSCALE);
+              }
+              else
+              {
+                map.entities[k].y -= (float)((float)diffrect.h / (float)MAPSCALE);
+              }
+            }
+          }
+
+          /* test every other entity if it collides with another */
+          /*
+          for(l = 0; l < MAXENTITIES; l++)
+          {
+            if(map.entities[l].enabled)
+            {
+              temprect3.x = map.entities[l].x  * MAPSCALE - 3;
+              temprect3.y = map.entities[l].y * MAPSCALE - 3;
+              temprect3.w = 7;
+              temprect3.h = 7;
+
+              if(SDL_IntersectRect(&temprect3, &temprect2, &diffrect) && l != k)
+              {
+                printf("diffrect: x%f y%f w%f h%f\n", (float)diffrect.x/MAPSCALE, (float)diffrect.y/MAPSCALE, (float)diffrect.w/MAPSCALE, (float)diffrect.h/MAPSCALE);
+
+                if(diffrect.h > diffrect.w)
+                {
+                  if(temprect1.x > temprect.x)
+                  {
+                    map.entities[l].x += (float)((float)diffrect.w / (float)MAPSCALE);
+                  }
+                  else
+                  {
+                    map.entities[l].x -= (float)((float)diffrect.w / (float)MAPSCALE);
+                  }
+                }
+                else
+                {
+                  if(temprect1.y > temprect.y)
+                  {
+                    map.entities[l].y += (float)((float)diffrect.h / (float)MAPSCALE);
+                  }
+                  else
+                  {
+                    map.entities[l].y -= (float)((float)diffrect.h / (float)MAPSCALE);
+                  }
+                }
+              }
+            }
+          }
+          */
+          switch(map.entities[k].type)
+          {
+            case ENTITY_PLAYER_0:
+
+            break;
+            case ENTITY_PLAYER_1:
+
+            break;
+            case ENTITY_PLAYER_2:
+
+            break;
+            case ENTITY_MONSTER0:
+
+            break;
+            default:
+            printf("weird entity\n");
+          }
+
+        }
+      }
+
+
+      if(SDL_IntersectRect(&temprect1, &temprect, &diffrect))
+      {
+        /*printf("diffrect: x%f y%f w%f h%f\n", (float)diffrect.x/MAPSCALE, (float)diffrect.y/MAPSCALE, (float)diffrect.w/MAPSCALE, (float)diffrect.h/MAPSCALE);*/
+        if(diffrect.h > diffrect.w)
+        {
+          if(temprect1.x > temprect.x)
+          {
+            map.player.x += (float)((float)diffrect.w / (float)MAPSCALE);
+          }
+          else
+          {
+            map.player.x -= (float)((float)diffrect.w / (float)MAPSCALE);
+          }
+        }
+        else
+        {
+          if(temprect1.y > temprect.y)
+          {
+            map.player.y += (float)((float)diffrect.h / (float)MAPSCALE);
+          }
+          else
+          {
+            map.player.y -= (float)((float)diffrect.h / (float)MAPSCALE);
+          }
+        }
+      }
+
+      /* entities*/
+
+
+      /* physics check for the entities*/
+
+
+
+
+
+
+    }
   }
 
-  /* physics check for the entities outside of check for map tiles*/
-  for(j = 0; j < MAXENTITIES; j++)
+  if(map.player.health > 150)
   {
-    if(map.entities[j].enabled)
+    map.player.health = 0;
+  }
+
+  if(map.player.x < 0 || map.player.x > map.width || map.player.y < 0 || map.player.y > map.height)
+  {
+    printf("outside map\n");
+    size_t i;
+    for(i = 0; i < map.height * map.width; i++)
     {
-      switch(map.entities[j].type)
+      if(map.tiles[i].type == TILE_PLAYERSTART)
       {
-        case ENTITY_PLAYER_0:
-
-        break;
-        case ENTITY_PLAYER_1:
-
-        break;
-        case ENTITY_PLAYER_2:
-
-        break;
-        case ENTITY_MONSTER0:
-
-        break;
-        default:
-        printf("weird entity\n");
+        map.player.x = map.tiles[i].posx + 0.5;
+        map.player.y = map.tiles[i].posy + 0.5;
       }
-      temprect.x = map.entities[j].x  * MAPSCALE - 3;
-      temprect.y = map.entities[j].y * MAPSCALE - 3;
-      temprect.w = 7;
-      temprect.h = 7;
-
     }
   }
 
 
 
   /* ================================== */
-
+  i += 0.003;
 }
 
 void destroy()
@@ -446,6 +637,28 @@ void loop()
           {
             map.text_entry_mode = 1;
             map.display_connectbox = 1;
+          }
+          if(event.key.keysym.sym == SDLK_r)
+          {
+            size_t i;
+            for(i = 0; i < map.height * map.width; i++)
+            {
+              if(map.tiles[i].type == TILE_PLAYERSTART)
+              {
+                map.player.x = map.tiles[i].posx + 0.5;
+                map.player.y = map.tiles[i].posy + 0.5;
+              }
+            }
+            for(i = 0; i < monsters; i++)
+            {
+              map.entities[i].enabled = 1;
+              map.entities[i].type = rand()%4;
+              map.entities[i].x = rand()%10;
+              map.entities[i].y = rand()%10;
+              map.entities[i].angle = rand()%360;
+            }
+            map.player.health = 100;
+            monsters++;
           }
         }
         if(event.type == SDL_KEYUP)
@@ -653,7 +866,7 @@ int parse_map(char *location, map_settings_t *map)
   map->height = strtol(nextptr + 1, NULL, 10);
 
 
-  if((map->tiles = malloc(((map->width * map->height) + (map->width * map->height) /2) * sizeof(map->tiles))) == NULL) /* did something stupid, but whatever works and doesnt print stacktrace */
+  if((map->tiles = malloc((map->width * sizeof(map->tiles)) * (map->height * sizeof(map->tiles)))) == NULL) /* did something stupid, but whatever works and doesnt print stacktrace */
   {
     printf("malloc error\n");
     SDL_RWclose(mapfile);

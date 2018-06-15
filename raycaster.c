@@ -11,8 +11,14 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdio.h>
 
-#include <SDL2/SDL2_gfxPrimitives.h>
+/* #include <SDL2/SDL2_gfxPrimitives.h>*/
+/*#include "lib/SDL2_framerate.h"*/
+#include "lib/SDL2_gfxPrimitives.h"
+/*#include "lib/SDL2_gfxPrimitives_font.h"
+#include "lib/SDL2_imageFilter.h"
+#include "lib/SDL2_rotozoom.h"*/
 
 SDL_Window *mainwin = NULL;
 SDL_Window *debugwin = NULL;
@@ -359,7 +365,8 @@ static int internal_threadDoWork(void *data)
   return 0;
 }
 
-static int internal_createTexHeader(SDL_Renderer *renderer, SDL_Texture **tex, const unsigned char *dataPtr, unsigned int len){
+static int internal_createTexHeader(SDL_Renderer *renderer, SDL_Texture **tex, const unsigned char *dataPtr, unsigned int len)
+{
   SDL_Surface *loadSurface = NULL;
   int pass = 1;
   loadSurface = SDL_LoadBMP_RW(SDL_RWFromMem(dataPtr, len), 0);
@@ -380,6 +387,7 @@ static void internal_drawGUI(map_settings_t *map)
   /* draw skin */
   static unsigned char lastSkin = -1; /* wrap around */
   static SDL_Texture *tex = NULL, *death = NULL;
+  char *health = NULL;
 
   if(death == NULL)
     internal_createTexHeader(mainrenderer, &death, died_bmp, died_bmp_len);
@@ -424,6 +432,12 @@ static void internal_drawGUI(map_settings_t *map)
   }
 
   stringRGBA(mainrenderer, map->win_width - 490, 10, "Press F1 to connect to a server", 255, 255, 255, 255);
+
+  asprintf(&health, "Health:%d", map->player.health);
+  stringRGBA(mainrenderer, map->win_width - 96, map->win_height - 48, health, 255, 255, 255, 255);
+  free(health);
+
+  stringRGBA(mainrenderer, map->win_width - 100, map->win_height - 540, "Leaderboard-", 255, 255, 255, 255);
 
   if(map->player.health == 0)
     SDL_RenderCopy(mainrenderer, death, NULL, NULL);
